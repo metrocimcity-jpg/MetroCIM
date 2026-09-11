@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <Configurations>Debug;Release</Configurations>
+    <RevitVersion>2027</RevitVersion>
+    <DeployAddin Condition="'$(DeployAddin)' == ''">false</DeployAddin>
+    <RevitAddinsDir>$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\</RevitAddinsDir>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2027.*" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="SharpGLTF.Toolkit" Version="1.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <None Include="RevitXKT.addin" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="DeployAddin" AfterTargets="Build" Condition="'$(DeployAddin)' == 'true'">
+    <MakeDir Directories="$(RevitAddinsDir)RevitXKT\" />
+    <ItemGroup>
+      <DeployFiles Include="$(OutputPath)*.dll" />
+      <DeployFiles Include="$(OutputPath)*.pdb" />
+      <DeployFiles Include="$(OutputPath)*.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(RevitAddinsDir)RevitXKT\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\RevitXKT.addin" DestinationFolder="$(RevitAddinsDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

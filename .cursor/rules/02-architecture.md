@@ -1,6 +1,6 @@
 # Architecture
 
-Keep types small: `VisibilityService`, `ColorResolver`, `MepSystemTypeColor`, `GeometryBuilder`, `GltfExporter`, `XktConverter`, `ViewExporter`, `MetadataExporter`, `IfcExporter`, `IfcAppearanceApplier`. Do not merge XKT conversion into the glTF writer.
+Keep types small: `VisibilityService`, `ColorResolver`, `MepSystemTypeColor`, `GeometryBuilder`, `GltfExporter`, `XktConverter`, `ViewExporter`, `MetadataExporter`, `IfcExporter`, `IfcAppearanceApplier`, `IfcColorPatcher`. Do not merge XKT conversion into the glTF writer.
 
 ## Commands
 - `ExportGltfCommand` — validate `View3D`, pick `.glb`/`.gltf`, build meshes, save glTF
@@ -27,7 +27,7 @@ Use **surface / fill** colors, never projection-line color, as mesh albedo.
 5. Never pipe segment material, pipe type material, `RBS_PIPE_MATERIAL_PARAM`, or `element.GetMaterialIds()` on pipes
 6. Other categories: non-black element materials, else a neutral default
 
-`PipeInsulation` / other `InsulationLiningBase` elements inherit appearance from `HostElementId` so insulated pipes match system-type colors.
+`PipeInsulation` / other `InsulationLiningBase` elements inherit appearance from `HostElementId` so insulated pipes match system-type colors. Pipe fittings and accessories use the connected pipe’s system type when they have no system parameter of their own. Pipe fittings and accessories use the connected pipe’s system type when they have no system parameter of their own.
 
 ## Geometry and glTF
 - `element.get_Geometry(new Options { View = view })`
@@ -44,4 +44,4 @@ node --max-old-space-size=16384 convert2xkt.js -s "<glb>" -o "<xkt>" -m "<metada
 Detect the CLI before conversion. Missing tool message: `npm install -g @xeokit/xeokit-convert`.
 
 ## IFC
-Load Revit's IFC UI setups (`Autodesk.IFC.Export.UI`): in-session, built-in, and document-saved. Before `document.Export`, apply the same `ColorResolver` colors used by glTF (system-type material / fill, not pipe physical material) so IFC surface styles match the 3D view. Snapshot the IFC, then roll back those temporary materials. Export with the file name **without** extension, `ActiveViewId` as the numeric view id, tessellation **0.8**, and retry without `FilterViewId` if the file is empty.
+Load Revit's IFC UI setups (`Autodesk.IFC.Export.UI`): in-session, built-in, and document-saved. Before `document.Export`, apply the same `ColorResolver` colors used by glTF (system-type material / fill, not pipe physical material). After export, patch `IfcStyledItem` / `IfcColourRgb` by IFC GlobalId so viewers show those colors even when Revit wrote pipe physical materials. Snapshot the IFC, then roll back temporary materials. Export with the file name **without** extension, `ActiveViewId` as the numeric view id, tessellation **0.8**, and retry without `FilterViewId` if the file is empty.

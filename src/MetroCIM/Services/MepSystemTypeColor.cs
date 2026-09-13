@@ -60,6 +60,8 @@ public sealed class MepSystemTypeColor
         return found;
     }
 
+    public MEPSystemType? ResolveSystemType(Element element) => FindSystemType(element);
+
     private MEPSystemType? FindSystemType(Element element)
     {
         if (_systemTypeByElement.TryGetValue(element.Id, out ElementId? cachedId))
@@ -116,29 +118,92 @@ public sealed class MepSystemTypeColor
         }
 
         if (element is FamilyInstance instance)
-        {
-            try
-            {
-                ConnectorManager? manager = instance.MEPModel?.ConnectorManager;
-                if (manager is not null)
-                {
-                    foreach (Connector connector in manager.Connectors.Cast<Connector>())
-                    {
-                        if (connector.MEPSystem is { } system &&
-                            doc.GetElement(system.GetTypeId()) is MEPSystemType fromConnector)
-                        {
-                            return fromConnector;
-                        }
-                    }
-                }
-            }
-            catch (Autodesk.Revit.Exceptions.ApplicationException)
-            {
-                // Family has no MEP connectors.
-            }
-        }
+            return FindSystemTypeFromInstance(instance, doc);
 
         return null;
+    }
+
+    private static MEPSystemType? FindSystemTypeFromInstance(FamilyInstance instance, Document doc)
+    {
+        var votes = new Dictionary<ElementId, (MEPSystemType Type, int Count)>();
+
+        try
+        {
+            ConnectorManager? manager = instance.MEPModel?.ConnectorManager;
+            if (manager is not null)
+            {
+                foreach (Connector connector in manager.Connectors.Cast<Connector>())
+                    TallyConnector(connector, instance.Id, doc, votes);
+            }
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+        }
+
+        return votes
+            .OrderByDescending(pair => pair.Value.Count)
+            .Select(pair => pair.Value.Type)
+            .FirstOrDefault();
+    }
+
+    private static void TallyConnector(
+        Connector connector,
+        ElementId ownerId,
+        Document doc,
+        Dictionary<ElementId, (MEPSystemType Type, int Count)> votes)
+    {
+        try
+        {
+            try
+        {
+            TallySystem(connector.MEPSystem, doc, votes);
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+        }
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+        }
+
+        try
+        {
+            foreach (Connector other in connector.AllRefs.Cast<Connector>())
+            {
+                if (other.Owner is null || other.Owner.Id == ownerId)
+                    continue;
+
+                TallySystem(other.MEPSystem, doc, votes);
+                if (other.Owner is MEPCurve curve)
+                    TallySystem(curve.MEPSystem, doc, votes);
+            }
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+        }
+    }
+
+    private static void TallySystem(
+        MEPSystem? system,
+        Document doc,
+        Dictionary<ElementId, (MEPSystemType Type, int Count)> votes)
+    {
+        if (system is null)
+            return;
+
+        try
+        {
+            if (doc.GetElement(system.GetTypeId()) is not MEPSystemType systemType)
+                return;
+
+            if (votes.TryGetValue(systemType.Id, out (MEPSystemType Type, int Count) existing))
+                votes[systemType.Id] = (existing.Type, existing.Count + 1);
+            else
+                votes[systemType.Id] = (systemType, 1);
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+        }
     }
 
     private static bool TryFromSystemType(MEPSystemType systemType, out ResolvedAppearance appearance)

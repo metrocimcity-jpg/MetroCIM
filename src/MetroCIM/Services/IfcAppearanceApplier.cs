@@ -1,5 +1,7 @@
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Plumbing;
 using MetroCIM.Models;
+using System.Globalization;
 using RevitColor = Autodesk.Revit.DB.Color;
 
 namespace MetroCIM.Services;
@@ -13,10 +15,11 @@ public sealed class IfcAppearanceApplier
     public static string MaterialName(ResolvedAppearance appearance) =>
         $"MetroCIM {appearance.R:D3}-{appearance.G:D3}-{appearance.B:D3}-{appearance.A:D3}";
 
-    public static bool Apply(Document document, View view)
+    public static Dictionary<string, ResolvedAppearance> Apply(Document document, View view)
     {
+        var colorsByIfcGuid = new Dictionary<string, ResolvedAppearance>(StringComparer.Ordinal);
         if (view is not View3D view3D || view3D.IsTemplate)
-            return false;
+            return colorsByIfcGuid;
 
         var visibility = new VisibilityService();
         var colors = new ColorResolver();
@@ -25,21 +28,42 @@ public sealed class IfcAppearanceApplier
         var materials = new Dictionary<(byte R, byte G, byte B, byte A), ElementId>();
         var materialsByName = IndexMaterials(document);
         ElementId? solidFillId = FindSolidFill(document);
+        var systemMaterials = new Dictionary<ElementId, ElementId>();
+        var systems = new MepSystemTypeColor();
 
         bool changed = false;
         foreach (Element element in visibility.GetVisibleElements(document, view3D))
         {
             ResolvedAppearance appearance = colors.Resolve(element, view3D);
+            IndexGuids(colorsByIfcGuid, element, appearance);
+
             ElementId materialId = GetOrCreateMaterial(document, materials, materialsByName, appearance);
             changed |= TrySetMaterialParameter(element, materialId);
+            changed |= TrySetIfcMaterialOverride(element, MaterialName(appearance));
             changed |= TrySetOverrides(view3D, element, appearance, solidFillId);
-            changed |= PaintFaces(document, element, view3D, materialId);
+            changed |= PaintFaces(document, element, materialId);
+            changed |= TrySetSystemTypeMaterial(systems, element, materialId, systemMaterials);
         }
 
         if (changed)
             document.Regenerate();
 
-        return changed;
+        return colorsByIfcGuid;
+    }
+
+    public static void HarvestStoredGuids(
+        Document document,
+        View view,
+        Dictionary<string, ResolvedAppearance> colorsByIfcGuid)
+    {
+        if (view is not View3D view3D || view3D.IsTemplate)
+            return;
+
+        var visibility = new VisibilityService();
+        var colors = new ColorResolver();
+        colors.Bind(view3D);
+        foreach (Element element in visibility.GetVisibleElements(document, view3D))
+            IndexGuids(colorsByIfcGuid, element, colors.Resolve(element, view3D));
     }
 
     private static Dictionary<string, ElementId> IndexMaterials(Document document)
@@ -140,13 +164,83 @@ public sealed class IfcAppearanceApplier
         }
     }
 
-    private static bool PaintFaces(Document document, Element element, View3D view, ElementId materialId)
+    private static bool TrySetIfcMaterialOverride(Element element, string materialName)
+    {
+        Parameter? parameter = element.LookupParameter("IfcSingleMaterialOverride");
+        if (parameter is not { StorageType: StorageType.String, IsReadOnly: false })
+            return false;
+
+        return parameter.Set(materialName);
+    }
+
+    private static bool TrySetSystemTypeMaterial(
+        MepSystemTypeColor systems,
+        Element element,
+        ElementId materialId,
+        Dictionary<ElementId, ElementId> assigned)
+    {
+        MEPSystemType? systemType = systems.ResolveSystemType(element);
+        if (systemType is null)
+            return false;
+
+        if (assigned.TryGetValue(systemType.Id, out ElementId? existing) && existing == materialId)
+            return false;
+
+        try
+        {
+            if (systemType.MaterialId == materialId)
+            {
+                assigned[systemType.Id] = materialId;
+                return false;
+            }
+
+            systemType.MaterialId = materialId;
+            assigned[systemType.Id] = materialId;
+            return true;
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            return false;
+        }
+    }
+
+    private static void IndexGuids(
+        Dictionary<string, ResolvedAppearance> colorsByIfcGuid,
+        Element element,
+        ResolvedAppearance appearance)
+    {
+        try
+        {
+            Guid exportId = ExportUtils.GetExportId(element.Document, element.Id);
+            colorsByIfcGuid[IfcGuid.From(exportId)] = appearance;
+            if (!string.IsNullOrWhiteSpace(element.UniqueId))
+                colorsByIfcGuid[element.UniqueId] = appearance;
+            colorsByIfcGuid[element.Id.Value.ToString(CultureInfo.InvariantCulture)] = appearance;
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+        }
+
+        try
+        {
+            Parameter? stored = element.get_Parameter(BuiltInParameter.IFC_GUID);
+            if (stored is { HasValue: true, StorageType: StorageType.String } &&
+                stored.AsString() is { Length: 22 } value)
+            {
+                colorsByIfcGuid[value] = appearance;
+            }
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+        }
+    }
+
+    private static bool PaintFaces(Document document, Element element, ElementId materialId)
     {
         Options options = new()
         {
             ComputeReferences = true,
-            IncludeNonVisibleObjects = false,
-            View = view
+            IncludeNonVisibleObjects = false
         };
 
         GeometryElement? geometry;
@@ -171,11 +265,6 @@ public sealed class IfcAppearanceApplier
             {
                 case Solid solid:
                     painted |= PaintSolid(document, elementId, solid, materialId);
-                    break;
-                case GeometryInstance instance:
-                    GeometryElement? instanceGeometry = instance.GetInstanceGeometry();
-                    if (instanceGeometry is not null)
-                        painted |= PaintGeometry(document, elementId, instanceGeometry, materialId);
                     break;
                 case GeometryElement nested:
                     painted |= PaintGeometry(document, elementId, nested, materialId);

@@ -1,4 +1,5 @@
 using Autodesk.Revit.DB;
+using MetroCIM.Models;
 using System.Collections;
 using System.Diagnostics;
 using System.Reflection;
@@ -163,10 +164,12 @@ public sealed class IfcExporter
         transaction.Start();
 
         bool appliedAppearance = false;
+        Dictionary<string, ResolvedAppearance> colorsByIfcGuid = [];
         bool exported;
         try
         {
-            appliedAppearance = IfcAppearanceApplier.Apply(document, view);
+            colorsByIfcGuid = IfcAppearanceApplier.Apply(document, view);
+            appliedAppearance = colorsByIfcGuid.Count > 0;
             exported = document.Export(folder, name, options);
             if (IfcExportPath.IsEmpty(IfcExportPath.FindWrittenFile(path)))
                 exported = document.Export(folder, Path.GetFileName(path), options);
@@ -176,6 +179,8 @@ public sealed class IfcExporter
                 ClearViewFilter(options);
                 exported = document.Export(folder, name, options);
             }
+
+            IfcAppearanceApplier.HarvestStoredGuids(document, view, colorsByIfcGuid);
         }
         catch (Exception ex)
         {
@@ -230,6 +235,15 @@ public sealed class IfcExporter
             return IfcExportOutcome.Failed(
                 setupName,
                 "Revit created an empty IFC file. Close this add-in dialog and use File > Export > IFC with the same setup to confirm the exporter, then try MetroCIM again.");
+        }
+
+        try
+        {
+            IfcColorPatcher.Apply(path, colorsByIfcGuid);
+        }
+        catch (Exception ex)
+        {
+            return IfcExportOutcome.Failed(setupName, "IFC was written but pipe colors could not be applied.\n" + ex.Message);
         }
 
         return IfcExportOutcome.Succeeded(setupName, path);

@@ -19,4 +19,10 @@ public sealed class IfcAppearanceApplierTests
         ResolvedAppearance glass = ResolvedAppearance.FromRgb(180, 180, 180, 40);
         Assert.Equal("MetroCIM 180-180-180-153", IfcAppearanceApplier.MaterialName(glass));
     }
+
+    [Fact]
+    public void EmptyGuidEncodesToTwentyTwoZeros()
+    {
+        Assert.Equal("0000000000000000000000", IfcGuid.From(Guid.Empty));
+    }
 }

@@ -1,7 +1,6 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Plumbing;
 using MetroCIM.Models;
-using System.Globalization;
 using RevitColor = Autodesk.Revit.DB.Color;
 
 namespace MetroCIM.Services;
@@ -35,7 +34,7 @@ public sealed class IfcAppearanceApplier
         foreach (Element element in visibility.GetVisibleElements(document, view3D))
         {
             ResolvedAppearance appearance = colors.Resolve(element, view3D);
-            IndexGuids(colorsByIfcGuid, element, appearance);
+            IndexElementAndNested(colorsByIfcGuid, element, appearance);
 
             ElementId materialId = GetOrCreateMaterial(document, materials, materialsByName, appearance);
             changed |= TrySetMaterialParameter(element, materialId);
@@ -63,7 +62,7 @@ public sealed class IfcAppearanceApplier
         var colors = new ColorResolver();
         colors.Bind(view3D);
         foreach (Element element in visibility.GetVisibleElements(document, view3D))
-            IndexGuids(colorsByIfcGuid, element, colors.Resolve(element, view3D));
+            IndexElementAndNested(colorsByIfcGuid, element, colors.Resolve(element, view3D));
     }
 
     private static Dictionary<string, ElementId> IndexMaterials(Document document)
@@ -204,6 +203,31 @@ public sealed class IfcAppearanceApplier
         }
     }
 
+    private static void IndexElementAndNested(
+        Dictionary<string, ResolvedAppearance> colorsByIfcGuid,
+        Element element,
+        ResolvedAppearance appearance)
+    {
+        IndexGuids(colorsByIfcGuid, element, appearance);
+        if (element is not FamilyInstance instance)
+            return;
+
+        try
+        {
+            foreach (ElementId nestedId in instance.GetSubComponentIds())
+            {
+                if (nestedId == instance.Id)
+                    continue;
+
+                if (element.Document.GetElement(nestedId) is Element nested)
+                    IndexElementAndNested(colorsByIfcGuid, nested, appearance);
+            }
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+        }
+    }
+
     private static void IndexGuids(
         Dictionary<string, ResolvedAppearance> colorsByIfcGuid,
         Element element,
@@ -215,7 +239,6 @@ public sealed class IfcAppearanceApplier
             colorsByIfcGuid[IfcGuid.From(exportId)] = appearance;
             if (!string.IsNullOrWhiteSpace(element.UniqueId))
                 colorsByIfcGuid[element.UniqueId] = appearance;
-            colorsByIfcGuid[element.Id.Value.ToString(CultureInfo.InvariantCulture)] = appearance;
         }
         catch (Autodesk.Revit.Exceptions.ApplicationException)
         {

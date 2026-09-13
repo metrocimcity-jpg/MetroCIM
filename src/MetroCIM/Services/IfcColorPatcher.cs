@@ -1,5 +1,5 @@
-using System.IO.Compression;
 using System.Globalization;
+using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using MetroCIM.Models;
@@ -56,6 +56,23 @@ public static class IfcColorPatcher
                 styledByItem[target] = entity.Id;
         }
 
+        var definedByType = new Dictionary<int, int>();
+        foreach (Entity entity in entities.Values)
+        {
+            if (entity.Type != "IFCRELDEFINESBYTYPE")
+                continue;
+
+            IReadOnlyList<string> args = SplitArgs(entity.Inner);
+            if (args.Count < 6)
+                continue;
+
+            if (!TryParseRef(args[5], out int typeId) || typeId == 0)
+                continue;
+
+            foreach (int productId in ParseRefs(args[4]))
+                definedByType[productId] = typeId;
+        }
+
         var styleByColor = new Dictionary<(byte, byte, byte, byte), int>();
         var materialByColor = new Dictionary<(byte, byte, byte, byte), int>();
         var replacements = new Dictionary<int, string>();
@@ -65,7 +82,7 @@ public static class IfcColorPatcher
         if (ownerHistoryId == 0)
             ownerHistoryId = 1;
 
-        var work = new List<(Entity Product, ResolvedAppearance Appearance, HashSet<int> Targets)>();
+        var work = new List<ProductWork>();
         foreach (Entity entity in entities.Values)
         {
             if (entity.Type.EndsWith("TYPE", StringComparison.Ordinal))
@@ -73,46 +90,76 @@ public static class IfcColorPatcher
 
             IReadOnlyList<string> args = SplitArgs(entity.Inner);
             if (args.Count < 6 ||
-                !TryResolveAppearance(args, colorsByIfcGuid, out ResolvedAppearance appearance) ||
-                !TryFindRepresentation(args, entities, out int representationId))
+                !TryResolveAppearance(args, colorsByIfcGuid, out ResolvedAppearance appearance))
             {
                 continue;
             }
 
-            var targets = new HashSet<int>();
-            CollectStyleTargets(entities, representationId, targets, []);
-            work.Add((entity, appearance, targets));
+            TryFindRepresentation(args, entities, out int representationId);
+            definedByType.TryGetValue(entity.Id, out int typeId);
+            work.Add(new ProductWork(entity, appearance, representationId, typeId, args));
         }
 
-        var usage = new Dictionary<int, int>();
-        foreach ((Entity _, ResolvedAppearance _, HashSet<int> targets) in work)
-        {
-            foreach (int target in targets)
-                usage[target] = usage.GetValueOrDefault(target) + 1;
-        }
+        InheritNestedAppearances(entities, definedByType, work);
 
-        var patchedProducts = new HashSet<int>();
-        foreach ((Entity product, ResolvedAppearance appearance, HashSet<int> targets) in work)
+        var colorsByRoot = new Dictionary<int, HashSet<(byte, byte, byte, byte)>>();
+        foreach (ProductWork item in work)
         {
-            int styleId = GetOrCreateStyle(appearance, ifc2x3, styleByColor, additions, ref nextId);
-            foreach (int target in targets)
+            foreach (int root in CollectGeometryRoots(entities, item.RepresentationId, item.TypeId, []))
             {
-                if (usage.GetValueOrDefault(target) != 1)
-                    continue;
+                if (!colorsByRoot.TryGetValue(root, out HashSet<(byte, byte, byte, byte)>? colors))
+                {
+                    colors = [];
+                    colorsByRoot[root] = colors;
+                }
 
-                if (styledByItem.TryGetValue(target, out int existingId) &&
-                    entities.TryGetValue(existingId, out Entity existing))
-                {
-                    replacements[existing.LineIndex] = $"#{existingId}=IFCSTYLEDITEM(#{target},(#{styleId}),$);";
-                }
-                else
-                {
-                    nextId++;
-                    additions.Add($"#{nextId}=IFCSTYLEDITEM(#{target},(#{styleId}),$);");
-                }
+                colors.Add((item.Appearance.R, item.Appearance.G, item.Appearance.B, item.Appearance.A));
+            }
+        }
+
+        var mapBySourceAndColor = new Dictionary<(int MapId, byte R, byte G, byte B, byte A), int>();
+        var cloneByRootAndColor = new Dictionary<(int RootId, byte R, byte G, byte B, byte A), int>();
+        var patchedProducts = new HashSet<int>();
+
+        foreach (ProductWork item in work)
+        {
+            int styleId = GetOrCreateStyle(item.Appearance, ifc2x3, styleByColor, additions, ref nextId);
+            var color = (item.Appearance.R, item.Appearance.G, item.Appearance.B, item.Appearance.A);
+
+            int representationId = item.RepresentationId;
+            if (representationId == 0)
+            {
+                representationId = TryCreateInstanceRepresentation(
+                    item,
+                    entities,
+                    color,
+                    styleId,
+                    colorsByRoot,
+                    mapBySourceAndColor,
+                    cloneByRootAndColor,
+                    styledByItem,
+                    replacements,
+                    additions,
+                    ref nextId);
             }
 
-            patchedProducts.Add(product.Id);
+            if (representationId != 0)
+            {
+                StyleRepresentation(
+                    entities,
+                    representationId,
+                    color,
+                    styleId,
+                    colorsByRoot,
+                    mapBySourceAndColor,
+                    cloneByRootAndColor,
+                    styledByItem,
+                    replacements,
+                    additions,
+                    ref nextId);
+            }
+
+            patchedProducts.Add(item.Product.Id);
         }
 
         if (patchedProducts.Count == 0)
@@ -137,7 +184,7 @@ public static class IfcColorPatcher
                 $"#{entity.Id}=IFCRELASSOCIATESMATERIAL({args[0]},{args[1]},{args[2]},{args[3]},{relatedArg},{args[5]});";
         }
 
-        foreach (IGrouping<(byte R, byte G, byte B, byte A), (Entity Product, ResolvedAppearance Appearance, HashSet<int> Targets)> group in
+        foreach (IGrouping<(byte R, byte G, byte B, byte A), ProductWork> group in
                  work.GroupBy(item => (item.Appearance.R, item.Appearance.G, item.Appearance.B, item.Appearance.A)))
         {
             int materialId = GetOrCreateMaterial(group.Key, group.First().Appearance, materialByColor, additions, ref nextId);
@@ -198,8 +245,8 @@ public static class IfcColorPatcher
 
     private static int ApplyZip(string path, IReadOnlyDictionary<string, ResolvedAppearance> colorsByIfcGuid)
     {
-        using var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Update);
-        System.IO.Compression.ZipArchiveEntry? entry = zip.Entries.FirstOrDefault(e =>
+        using var zip = ZipFile.Open(path, ZipArchiveMode.Update);
+        ZipArchiveEntry? entry = zip.Entries.FirstOrDefault(e =>
             e.Name.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase));
         if (entry is null)
             return 0;
@@ -236,6 +283,676 @@ public static class IfcColorPatcher
 
         File.WriteAllBytes(path, encoding.GetBytes(patched));
         return 1;
+    }
+
+    private static void StyleRepresentation(
+        Dictionary<int, Entity> entities,
+        int id,
+        (byte R, byte G, byte B, byte A) color,
+        int styleId,
+        Dictionary<int, HashSet<(byte, byte, byte, byte)>> colorsByRoot,
+        Dictionary<(int MapId, byte R, byte G, byte B, byte A), int> mapBySourceAndColor,
+        Dictionary<(int RootId, byte R, byte G, byte B, byte A), int> cloneByRootAndColor,
+        Dictionary<int, int> styledByItem,
+        Dictionary<int, string> replacements,
+        List<string> additions,
+        ref int nextId)
+    {
+        if (!entities.TryGetValue(id, out Entity entity))
+            return;
+
+        IReadOnlyList<string> args = SplitArgs(entity.Inner);
+        switch (entity.Type)
+        {
+            case "IFCPRODUCTDEFINITIONSHAPE":
+                if (args.Count == 0)
+                    return;
+
+                List<int> representations = ParseRefs(args[^1]).ToList();
+                var newRepresentations = new List<int>();
+                bool pdsChanged = false;
+                foreach (int representation in representations)
+                {
+                    int styled = StyleShapeRepresentation(
+                        entities,
+                        representation,
+                        color,
+                        styleId,
+                        colorsByRoot,
+                        mapBySourceAndColor,
+                        cloneByRootAndColor,
+                        styledByItem,
+                        replacements,
+                        additions,
+                        ref nextId);
+                    newRepresentations.Add(styled);
+                    pdsChanged |= styled != representation;
+                }
+
+                if (pdsChanged)
+                {
+                    var rewritten = args.ToList();
+                    rewritten[^1] = "(" + string.Join(",", newRepresentations.Select(value => "#" + value)) + ")";
+                    replacements[entity.LineIndex] = $"#{entity.Id}={entity.Type}({string.Join(",", rewritten)});";
+                }
+
+                break;
+
+            case "IFCSHAPEREPRESENTATION":
+                StyleShapeRepresentation(
+                    entities,
+                    id,
+                    color,
+                    styleId,
+                    colorsByRoot,
+                    mapBySourceAndColor,
+                    cloneByRootAndColor,
+                    styledByItem,
+                    replacements,
+                    additions,
+                    ref nextId);
+                break;
+        }
+    }
+
+    private static int StyleShapeRepresentation(
+        Dictionary<int, Entity> entities,
+        int id,
+        (byte R, byte G, byte B, byte A) color,
+        int styleId,
+        Dictionary<int, HashSet<(byte, byte, byte, byte)>> colorsByRoot,
+        Dictionary<(int MapId, byte R, byte G, byte B, byte A), int> mapBySourceAndColor,
+        Dictionary<(int RootId, byte R, byte G, byte B, byte A), int> cloneByRootAndColor,
+        Dictionary<int, int> styledByItem,
+        Dictionary<int, string> replacements,
+        List<string> additions,
+        ref int nextId)
+    {
+        if (!entities.TryGetValue(id, out Entity entity) || entity.Type != "IFCSHAPEREPRESENTATION")
+            return id;
+
+        IReadOnlyList<string> args = SplitArgs(entity.Inner);
+        if (args.Count >= 2)
+        {
+            string identifier = Unquote(args[1]);
+            if (identifier is "Axis" or "Box" or "Annotation" or "FootPrint" or "Profile")
+                return id;
+        }
+
+        if (args.Count == 0)
+            return id;
+
+        List<int> items = ParseRefs(args[^1]).ToList();
+        var newItems = new List<int>(items.Count);
+        bool itemsChanged = false;
+        foreach (int itemId in items)
+        {
+            int styled = StyleItem(
+                entities,
+                itemId,
+                color,
+                styleId,
+                colorsByRoot,
+                mapBySourceAndColor,
+                cloneByRootAndColor,
+                styledByItem,
+                replacements,
+                additions,
+                ref nextId);
+            newItems.Add(styled);
+            itemsChanged |= styled != itemId;
+        }
+
+        if (!itemsChanged)
+            return id;
+
+        if (IsLineAlreadyRewritten(entity.LineIndex, replacements))
+        {
+            nextId++;
+            var clonedArgs = args.ToList();
+            clonedArgs[^1] = "(" + string.Join(",", newItems.Select(value => "#" + value)) + ")";
+            additions.Add($"#{nextId}=IFCSHAPEREPRESENTATION({string.Join(",", clonedArgs)});");
+            return nextId;
+        }
+
+        var rewritten = args.ToList();
+        rewritten[^1] = "(" + string.Join(",", newItems.Select(value => "#" + value)) + ")";
+        replacements[entity.LineIndex] = $"#{entity.Id}=IFCSHAPEREPRESENTATION({string.Join(",", rewritten)});";
+        return id;
+    }
+
+    private static int StyleItem(
+        Dictionary<int, Entity> entities,
+        int id,
+        (byte R, byte G, byte B, byte A) color,
+        int styleId,
+        Dictionary<int, HashSet<(byte, byte, byte, byte)>> colorsByRoot,
+        Dictionary<(int MapId, byte R, byte G, byte B, byte A), int> mapBySourceAndColor,
+        Dictionary<(int RootId, byte R, byte G, byte B, byte A), int> cloneByRootAndColor,
+        Dictionary<int, int> styledByItem,
+        Dictionary<int, string> replacements,
+        List<string> additions,
+        ref int nextId)
+    {
+        if (!entities.TryGetValue(id, out Entity entity))
+            return id;
+
+        IReadOnlyList<string> args = SplitArgs(entity.Inner);
+        if (entity.Type == "IFCSTYLEDITEM")
+        {
+            if (args.Count > 0 && TryParseRef(args[0], out int target) && target != 0)
+            {
+                return StyleItem(
+                    entities,
+                    target,
+                    color,
+                    styleId,
+                    colorsByRoot,
+                    mapBySourceAndColor,
+                    cloneByRootAndColor,
+                    styledByItem,
+                    replacements,
+                    additions,
+                    ref nextId);
+            }
+
+            return id;
+        }
+
+        if (entity.Type == "IFCMAPPEDITEM")
+        {
+            StyleMappedItem(
+                entity,
+                args,
+                color,
+                styleId,
+                entities,
+                colorsByRoot,
+                mapBySourceAndColor,
+                cloneByRootAndColor,
+                styledByItem,
+                replacements,
+                additions,
+                ref nextId);
+            StyleInPlace(id, styleId, styledByItem, entities, replacements, additions, ref nextId);
+            return id;
+        }
+
+        return AssignRoot(
+            id,
+            color,
+            styleId,
+            colorsByRoot,
+            cloneByRootAndColor,
+            styledByItem,
+            entities,
+            replacements,
+            additions,
+            ref nextId);
+    }
+
+    private static void StyleMappedItem(
+        Entity mappedItem,
+        IReadOnlyList<string> args,
+        (byte R, byte G, byte B, byte A) color,
+        int styleId,
+        Dictionary<int, Entity> entities,
+        Dictionary<int, HashSet<(byte, byte, byte, byte)>> colorsByRoot,
+        Dictionary<(int MapId, byte R, byte G, byte B, byte A), int> mapBySourceAndColor,
+        Dictionary<(int RootId, byte R, byte G, byte B, byte A), int> cloneByRootAndColor,
+        Dictionary<int, int> styledByItem,
+        Dictionary<int, string> replacements,
+        List<string> additions,
+        ref int nextId)
+    {
+        if (args.Count == 0 || !TryParseRef(args[0], out int mapId) || mapId == 0)
+            return;
+
+        bool splitColors = CollectMapRoots(entities, mapId, [], [])
+            .Any(root => colorsByRoot.TryGetValue(root, out HashSet<(byte, byte, byte, byte)>? colors) &&
+                         colors.Count > 1);
+
+        int coloredMap = splitColors
+            ? GetOrCreateColoredMap(
+                mapId,
+                color,
+                styleId,
+                entities,
+                colorsByRoot,
+                mapBySourceAndColor,
+                cloneByRootAndColor,
+                styledByItem,
+                replacements,
+                additions,
+                ref nextId)
+            : mapId;
+
+        if (!splitColors)
+        {
+            foreach (int root in CollectMapRoots(entities, mapId, [], []))
+            {
+                AssignRoot(
+                    root,
+                    color,
+                    styleId,
+                    colorsByRoot,
+                    cloneByRootAndColor,
+                    styledByItem,
+                    entities,
+                    replacements,
+                    additions,
+                    ref nextId);
+            }
+        }
+
+        if (coloredMap == mapId)
+            return;
+
+        var rewritten = args.ToList();
+        rewritten[0] = "#" + coloredMap;
+        replacements[mappedItem.LineIndex] = $"#{mappedItem.Id}=IFCMAPPEDITEM({string.Join(",", rewritten)});";
+    }
+
+    private static int GetOrCreateColoredMap(
+        int mapId,
+        (byte R, byte G, byte B, byte A) color,
+        int styleId,
+        Dictionary<int, Entity> entities,
+        Dictionary<int, HashSet<(byte, byte, byte, byte)>> colorsByRoot,
+        Dictionary<(int MapId, byte R, byte G, byte B, byte A), int> mapBySourceAndColor,
+        Dictionary<(int RootId, byte R, byte G, byte B, byte A), int> cloneByRootAndColor,
+        Dictionary<int, int> styledByItem,
+        Dictionary<int, string> replacements,
+        List<string> additions,
+        ref int nextId)
+    {
+        var key = (mapId, color.R, color.G, color.B, color.A);
+        if (mapBySourceAndColor.TryGetValue(key, out int cached))
+            return cached;
+
+        if (!entities.TryGetValue(mapId, out Entity map) || map.Type != "IFCREPRESENTATIONMAP")
+            return mapId;
+
+        IReadOnlyList<string> mapArgs = SplitArgs(map.Inner);
+        if (mapArgs.Count < 2 || !TryParseRef(mapArgs[1], out int mappedRep) || mappedRep == 0)
+            return mapId;
+
+        int coloredRep = CloneShapeRepresentation(
+            mappedRep,
+            color,
+            styleId,
+            entities,
+            colorsByRoot,
+            mapBySourceAndColor,
+            cloneByRootAndColor,
+            styledByItem,
+            replacements,
+            additions,
+            ref nextId);
+
+        nextId++;
+        int newMap = nextId;
+        additions.Add($"#{newMap}=IFCREPRESENTATIONMAP({mapArgs[0]},#{coloredRep});");
+        mapBySourceAndColor[key] = newMap;
+        return newMap;
+    }
+
+    private static int CloneShapeRepresentation(
+        int id,
+        (byte R, byte G, byte B, byte A) color,
+        int styleId,
+        Dictionary<int, Entity> entities,
+        Dictionary<int, HashSet<(byte, byte, byte, byte)>> colorsByRoot,
+        Dictionary<(int MapId, byte R, byte G, byte B, byte A), int> mapBySourceAndColor,
+        Dictionary<(int RootId, byte R, byte G, byte B, byte A), int> cloneByRootAndColor,
+        Dictionary<int, int> styledByItem,
+        Dictionary<int, string> replacements,
+        List<string> additions,
+        ref int nextId)
+    {
+        if (!entities.TryGetValue(id, out Entity entity) || entity.Type != "IFCSHAPEREPRESENTATION")
+            return id;
+
+        IReadOnlyList<string> args = SplitArgs(entity.Inner);
+        if (args.Count == 0)
+            return id;
+
+        var newItems = new List<int>();
+        foreach (int itemId in ParseRefs(args[^1]))
+        {
+            newItems.Add(StyleItem(
+                entities,
+                itemId,
+                color,
+                styleId,
+                colorsByRoot,
+                mapBySourceAndColor,
+                cloneByRootAndColor,
+                styledByItem,
+                replacements,
+                additions,
+                ref nextId));
+        }
+
+        var clonedArgs = args.ToList();
+        clonedArgs[^1] = "(" + string.Join(",", newItems.Select(value => "#" + value)) + ")";
+        nextId++;
+        additions.Add($"#{nextId}=IFCSHAPEREPRESENTATION({string.Join(",", clonedArgs)});");
+        return nextId;
+    }
+
+    private static int AssignRoot(
+        int rootId,
+        (byte R, byte G, byte B, byte A) color,
+        int styleId,
+        Dictionary<int, HashSet<(byte, byte, byte, byte)>> colorsByRoot,
+        Dictionary<(int RootId, byte R, byte G, byte B, byte A), int> cloneByRootAndColor,
+        Dictionary<int, int> styledByItem,
+        Dictionary<int, Entity> entities,
+        Dictionary<int, string> replacements,
+        List<string> additions,
+        ref int nextId)
+    {
+        bool split = colorsByRoot.TryGetValue(rootId, out HashSet<(byte, byte, byte, byte)>? colors) &&
+                     colors.Count > 1;
+        if (!split)
+        {
+            StyleInPlace(rootId, styleId, styledByItem, entities, replacements, additions, ref nextId);
+            return rootId;
+        }
+
+        var key = (rootId, color.R, color.G, color.B, color.A);
+        if (cloneByRootAndColor.TryGetValue(key, out int cached))
+            return cached;
+
+        if (!entities.TryGetValue(rootId, out Entity root))
+            return rootId;
+
+        nextId++;
+        int cloneId = nextId;
+        additions.Add($"#{cloneId}={root.Type}({root.Inner});");
+        cloneByRootAndColor[key] = cloneId;
+        StyleInPlace(cloneId, styleId, styledByItem, entities, replacements, additions, ref nextId);
+        return cloneId;
+    }
+
+    private static void StyleInPlace(
+        int targetId,
+        int styleId,
+        Dictionary<int, int> styledByItem,
+        Dictionary<int, Entity> entities,
+        Dictionary<int, string> replacements,
+        List<string> additions,
+        ref int nextId)
+    {
+        if (styledByItem.TryGetValue(targetId, out int existingId) &&
+            entities.TryGetValue(existingId, out Entity existing))
+        {
+            replacements[existing.LineIndex] = $"#{existingId}=IFCSTYLEDITEM(#{targetId},(#{styleId}),$);";
+            return;
+        }
+
+        if (styledByItem.ContainsKey(targetId))
+            return;
+
+        nextId++;
+        additions.Add($"#{nextId}=IFCSTYLEDITEM(#{targetId},(#{styleId}),$);");
+        styledByItem[targetId] = nextId;
+    }
+
+    private static int TryCreateInstanceRepresentation(
+        ProductWork item,
+        Dictionary<int, Entity> entities,
+        (byte R, byte G, byte B, byte A) color,
+        int styleId,
+        Dictionary<int, HashSet<(byte, byte, byte, byte)>> colorsByRoot,
+        Dictionary<(int MapId, byte R, byte G, byte B, byte A), int> mapBySourceAndColor,
+        Dictionary<(int RootId, byte R, byte G, byte B, byte A), int> cloneByRootAndColor,
+        Dictionary<int, int> styledByItem,
+        Dictionary<int, string> replacements,
+        List<string> additions,
+        ref int nextId)
+    {
+        if (item.TypeId == 0 || !entities.TryGetValue(item.TypeId, out Entity type))
+            return 0;
+
+        List<int> maps = FindRepresentationMaps(type, entities);
+        if (maps.Count == 0)
+            return 0;
+
+        var coloredMaps = new List<int>(maps.Count);
+        foreach (int mapId in maps)
+        {
+            coloredMaps.Add(GetOrCreateColoredMap(
+                mapId,
+                color,
+                styleId,
+                entities,
+                colorsByRoot,
+                mapBySourceAndColor,
+                cloneByRootAndColor,
+                styledByItem,
+                replacements,
+                additions,
+                ref nextId));
+        }
+
+        if (!TryGetMapTransform(entities, maps[0], out string originRef, out string contextRef))
+            return 0;
+
+        nextId++;
+        int transformId = nextId;
+        additions.Add($"#{transformId}=IFCCARTESIANTRANSFORMATIONOPERATOR3D($,$,{originRef},1.,$);");
+
+        var mappedItems = new List<int>(coloredMaps.Count);
+        foreach (int mapId in coloredMaps)
+        {
+            nextId++;
+            additions.Add($"#{nextId}=IFCMAPPEDITEM(#{mapId},#{transformId});");
+            mappedItems.Add(nextId);
+        }
+
+        nextId++;
+        int shapeRepId = nextId;
+        additions.Add(
+            $"#{shapeRepId}=IFCSHAPEREPRESENTATION({contextRef},'Body','MappedRepresentation',({string.Join(",", mappedItems.Select(id => "#" + id))}));");
+
+        nextId++;
+        int pdsId = nextId;
+        additions.Add($"#{pdsId}=IFCPRODUCTDEFINITIONSHAPE($,$,(#{shapeRepId}));");
+
+        if (TryRewriteProductRepresentation(item, pdsId, entities, replacements))
+            return pdsId;
+
+        return 0;
+    }
+
+    private static bool TryRewriteProductRepresentation(
+        ProductWork item,
+        int pdsId,
+        Dictionary<int, Entity> entities,
+        Dictionary<int, string> replacements)
+    {
+        IReadOnlyList<string> args = item.Args;
+        for (int i = 0; i < args.Count - 1; i++)
+        {
+            if (!TryParseRef(args[i], out int id) || id == 0 || !entities.TryGetValue(id, out Entity entity))
+                continue;
+
+            if (entity.Type != "IFCLOCALPLACEMENT")
+                continue;
+
+            if (args[i + 1] != "$" &&
+                !(TryParseRef(args[i + 1], out int existing) &&
+                  entities.TryGetValue(existing, out Entity existingEntity) &&
+                  existingEntity.Type is "IFCPRODUCTDEFINITIONSHAPE" or "IFCSHAPEREPRESENTATION"))
+            {
+                continue;
+            }
+
+            var rewritten = args.ToList();
+            rewritten[i + 1] = "#" + pdsId;
+            replacements[item.Product.LineIndex] =
+                $"#{item.Product.Id}={item.Product.Type}({string.Join(",", rewritten)});";
+            return true;
+        }
+
+        return false;
+    }
+
+    private static HashSet<int> CollectGeometryRoots(
+        Dictionary<int, Entity> entities,
+        int representationId,
+        int typeId,
+        HashSet<int> visited)
+    {
+        var roots = new HashSet<int>();
+        if (representationId != 0)
+            CollectRootsFrom(entities, representationId, roots, visited);
+
+        if (typeId != 0 && entities.TryGetValue(typeId, out Entity type))
+        {
+            foreach (int mapId in FindRepresentationMaps(type, entities))
+                CollectMapRoots(entities, mapId, roots, visited);
+        }
+
+        return roots;
+    }
+
+    private static void CollectRootsFrom(
+        Dictionary<int, Entity> entities,
+        int id,
+        HashSet<int> roots,
+        HashSet<int> visited)
+    {
+        if (!visited.Add(id) || !entities.TryGetValue(id, out Entity entity))
+            return;
+
+        IReadOnlyList<string> args = SplitArgs(entity.Inner);
+        switch (entity.Type)
+        {
+            case "IFCPRODUCTDEFINITIONSHAPE":
+                if (args.Count > 0)
+                {
+                    foreach (int nested in ParseRefs(args[^1]))
+                        CollectRootsFrom(entities, nested, roots, visited);
+                }
+
+                break;
+
+            case "IFCSHAPEREPRESENTATION":
+                if (args.Count >= 2)
+                {
+                    string identifier = Unquote(args[1]);
+                    if (identifier is "Axis" or "Box" or "Annotation" or "FootPrint" or "Profile")
+                        return;
+                }
+
+                if (args.Count > 0)
+                {
+                    foreach (int nested in ParseRefs(args[^1]))
+                        CollectItemRoots(entities, nested, roots, visited);
+                }
+
+                break;
+
+            default:
+                CollectItemRoots(entities, id, roots, visited);
+                break;
+        }
+    }
+
+    private static void CollectItemRoots(
+        Dictionary<int, Entity> entities,
+        int id,
+        HashSet<int> roots,
+        HashSet<int> visited)
+    {
+        if (!entities.TryGetValue(id, out Entity entity))
+            return;
+
+        IReadOnlyList<string> args = SplitArgs(entity.Inner);
+        if (entity.Type == "IFCSTYLEDITEM")
+        {
+            if (args.Count > 0 && TryParseRef(args[0], out int target) && target != 0)
+                CollectItemRoots(entities, target, roots, visited);
+            return;
+        }
+
+        if (entity.Type == "IFCMAPPEDITEM")
+        {
+            if (args.Count > 0 && TryParseRef(args[0], out int mapId) && mapId != 0)
+                CollectMapRoots(entities, mapId, roots, visited);
+            return;
+        }
+
+        roots.Add(id);
+    }
+
+    private static HashSet<int> CollectMapRoots(
+        Dictionary<int, Entity> entities,
+        int mapId,
+        HashSet<int> roots,
+        HashSet<int> visited)
+    {
+        if (!entities.TryGetValue(mapId, out Entity map) || map.Type != "IFCREPRESENTATIONMAP")
+            return roots;
+
+        IReadOnlyList<string> args = SplitArgs(map.Inner);
+        if (args.Count >= 2 && TryParseRef(args[1], out int mappedRep) && mappedRep != 0)
+            CollectRootsFrom(entities, mappedRep, roots, visited);
+
+        return roots;
+    }
+
+    private static List<int> FindRepresentationMaps(Entity type, Dictionary<int, Entity> entities)
+    {
+        foreach (string arg in SplitArgs(type.Inner))
+        {
+            List<int> refs = ParseRefs(arg).ToList();
+            if (refs.Count == 0)
+                continue;
+
+            if (refs.All(id => entities.TryGetValue(id, out Entity entity) && entity.Type == "IFCREPRESENTATIONMAP"))
+                return refs;
+        }
+
+        return [];
+    }
+
+    private static bool TryGetMapTransform(
+        Dictionary<int, Entity> entities,
+        int mapId,
+        out string originRef,
+        out string contextRef)
+    {
+        originRef = "$";
+        contextRef = "$";
+        if (!entities.TryGetValue(mapId, out Entity map))
+            return false;
+
+        IReadOnlyList<string> mapArgs = SplitArgs(map.Inner);
+        if (mapArgs.Count < 2)
+            return false;
+
+        originRef = mapArgs[0];
+        if (originRef.StartsWith('#') &&
+            TryParseRef(originRef, out int originId) &&
+            entities.TryGetValue(originId, out Entity origin))
+        {
+            IReadOnlyList<string> originArgs = SplitArgs(origin.Inner);
+            if (originArgs.Count > 0 && originArgs[0].StartsWith('#'))
+                originRef = originArgs[0];
+        }
+
+        if (TryParseRef(mapArgs[1], out int repId) &&
+            entities.TryGetValue(repId, out Entity rep) &&
+            SplitArgs(rep.Inner) is { Count: > 0 } repArgs)
+        {
+            contextRef = repArgs[0];
+        }
+
+        return originRef.StartsWith('#');
     }
 
     private static int GetOrCreateStyle(
@@ -279,91 +996,6 @@ public static class IfcColorPatcher
         return styleId;
     }
 
-    private static void CollectStyleTargets(
-        Dictionary<int, Entity> entities,
-        int id,
-        HashSet<int> targets,
-        HashSet<int> visited)
-    {
-        if (!visited.Add(id) || !entities.TryGetValue(id, out Entity entity))
-            return;
-
-        IReadOnlyList<string> args = SplitArgs(entity.Inner);
-        switch (entity.Type)
-        {
-            case "IFCPRODUCTDEFINITIONSHAPE":
-                if (args.Count > 0)
-                {
-                    foreach (int nested in ParseRefs(args[^1]))
-                        CollectStyleTargets(entities, nested, targets, visited);
-                }
-                break;
-
-            case "IFCSHAPEREPRESENTATION":
-                if (args.Count >= 2)
-                {
-                    string identifier = Unquote(args[1]);
-                    if (identifier is "Axis" or "Box" or "Annotation" or "FootPrint" or "Profile")
-                        return;
-                }
-
-                if (args.Count > 0)
-                {
-                    foreach (int nested in ParseRefs(args[^1]))
-                        AddTarget(entities, nested, targets, visited);
-                }
-                break;
-
-            default:
-                AddTarget(entities, id, targets, visited);
-                break;
-        }
-    }
-
-    private static void AddTarget(
-        Dictionary<int, Entity> entities,
-        int id,
-        HashSet<int> targets,
-        HashSet<int> visited)
-    {
-        if (!entities.TryGetValue(id, out Entity entity))
-            return;
-
-        IReadOnlyList<string> args = SplitArgs(entity.Inner);
-        if (entity.Type == "IFCSTYLEDITEM")
-        {
-            if (args.Count > 0 && TryParseRef(args[0], out int target) && target != 0)
-                AddTarget(entities, target, targets, visited);
-            return;
-        }
-
-        if (entity.Type is "IFCBOOLEANRESULT" or "IFCBOOLEANCLIPPINGRESULT")
-        {
-            targets.Add(id);
-            return;
-        }
-
-        targets.Add(id);
-        _ = visited;
-    }
-
-    private static IEnumerable<int> ParseRefs(string token)
-    {
-        foreach (string part in SplitArgs(UnwrapList(token)))
-        {
-            if (TryParseRef(part, out int id) && id != 0)
-                yield return id;
-        }
-    }
-
-    private static string UnwrapList(string token)
-    {
-        token = token.Trim();
-        if (token.StartsWith('(') && token.EndsWith(')'))
-            return token[1..^1];
-        return token;
-    }
-
     private static int GetOrCreateMaterial(
         (byte R, byte G, byte B, byte A) key,
         ResolvedAppearance appearance,
@@ -380,23 +1012,83 @@ public static class IfcColorPatcher
         return nextId;
     }
 
+    private static void InheritNestedAppearances(
+        Dictionary<int, Entity> entities,
+        Dictionary<int, int> definedByType,
+        List<ProductWork> work)
+    {
+        var nestedByParent = new Dictionary<int, List<int>>();
+        foreach (Entity entity in entities.Values)
+        {
+            if (entity.Type is not ("IFCRELNESTS" or "IFCRELAGGREGATES"))
+                continue;
+
+            IReadOnlyList<string> args = SplitArgs(entity.Inner);
+            if (args.Count < 6 || !TryParseRef(args[4], out int parentId) || parentId == 0)
+                continue;
+
+            if (!nestedByParent.TryGetValue(parentId, out List<int>? children))
+            {
+                children = [];
+                nestedByParent[parentId] = children;
+            }
+
+            children.AddRange(ParseRefs(args[5]));
+        }
+
+        if (nestedByParent.Count == 0)
+            return;
+
+        var seen = work.Select(item => item.Product.Id).ToHashSet();
+        for (int i = 0; i < work.Count; i++)
+        {
+            if (!nestedByParent.TryGetValue(work[i].Product.Id, out List<int>? children))
+                continue;
+
+            foreach (int childId in children)
+            {
+                if (!seen.Add(childId) || !entities.TryGetValue(childId, out Entity child))
+                    continue;
+
+                if (child.Type.EndsWith("TYPE", StringComparison.Ordinal))
+                    continue;
+
+                IReadOnlyList<string> childArgs = SplitArgs(child.Inner);
+                TryFindRepresentation(childArgs, entities, out int representationId);
+                definedByType.TryGetValue(childId, out int typeId);
+                work.Add(new ProductWork(child, work[i].Appearance, representationId, typeId, childArgs));
+            }
+        }
+    }
+
     private static bool TryResolveAppearance(
         IReadOnlyList<string> args,
         IReadOnlyDictionary<string, ResolvedAppearance> colorsByIfcGuid,
         out ResolvedAppearance appearance)
     {
         appearance = default;
+        if (args.Count > 0)
+        {
+            string globalId = Unquote(args[0]);
+            if (globalId.Length == 22 && colorsByIfcGuid.TryGetValue(globalId, out appearance))
+                return true;
+        }
+
         foreach (string arg in args)
         {
             string value = Unquote(arg);
-            if (value.Length == 0)
+            if (!LooksLikeUniqueId(value) && value.Length != 22)
                 continue;
+
             if (colorsByIfcGuid.TryGetValue(value, out appearance))
                 return true;
         }
 
         return false;
     }
+
+    private static bool LooksLikeUniqueId(string value) =>
+        value.Length >= 36 && value.Contains('-', StringComparison.Ordinal);
 
     private static bool TryFindRepresentation(
         IReadOnlyList<string> args,
@@ -419,10 +1111,21 @@ public static class IfcColorPatcher
         return false;
     }
 
-    private static bool TryParseGuid(string token, out string guid)
+    private static IEnumerable<int> ParseRefs(string token)
     {
-        guid = Unquote(token);
-        return guid.Length == 22;
+        foreach (string part in SplitArgs(UnwrapList(token)))
+        {
+            if (TryParseRef(part, out int id) && id != 0)
+                yield return id;
+        }
+    }
+
+    private static string UnwrapList(string token)
+    {
+        token = token.Trim();
+        if (token.StartsWith('(') && token.EndsWith(')'))
+            return token[1..^1];
+        return token;
     }
 
     private static bool TryParseRef(string token, out int id)
@@ -451,6 +1154,9 @@ public static class IfcColorPatcher
         return text.Contains('.') ? text : text + ".";
     }
 
+    private static bool IsLineAlreadyRewritten(int lineIndex, Dictionary<int, string> replacements) =>
+        replacements.ContainsKey(lineIndex);
+
     private static void TryDelete(string path)
     {
         try
@@ -463,4 +1169,11 @@ public static class IfcColorPatcher
     }
 
     private readonly record struct Entity(int Id, string Type, string Inner, int LineIndex);
+
+    private readonly record struct ProductWork(
+        Entity Product,
+        ResolvedAppearance Appearance,
+        int RepresentationId,
+        int TypeId,
+        IReadOnlyList<string> Args);
 }

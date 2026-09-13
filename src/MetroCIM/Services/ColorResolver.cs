@@ -83,7 +83,32 @@ public sealed class ColorResolver
             return host;
         }
 
-        return element;
+        Element current = element;
+        for (int i = 0; i < 8; i++)
+        {
+            if (current is not FamilyInstance instance)
+                break;
+
+            Element? parent;
+            try
+            {
+                parent = instance.SuperComponent;
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException)
+            {
+                break;
+            }
+
+            if (parent is null || parent.Id == current.Id)
+                break;
+
+            if (!IsPipingElement(parent) && !IsPipingElement(current))
+                break;
+
+            current = parent;
+        }
+
+        return current;
     }
 
     private bool TryGetFilterAppearance(

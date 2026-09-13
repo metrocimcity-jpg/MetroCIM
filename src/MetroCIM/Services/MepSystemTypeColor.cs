@@ -125,61 +125,101 @@ public sealed class MepSystemTypeColor
 
     private static MEPSystemType? FindSystemTypeFromInstance(FamilyInstance instance, Document doc)
     {
-        var votes = new Dictionary<ElementId, (MEPSystemType Type, int Count)>();
+        var pipeVotes = new Dictionary<ElementId, (MEPSystemType Type, int Count)>();
+        var otherVotes = new Dictionary<ElementId, (MEPSystemType Type, int Count)>();
+        var visited = new HashSet<ElementId> { instance.Id };
+        CollectFromInstance(instance, doc, pipeVotes, otherVotes, visited, 0);
 
-        try
+        if (pipeVotes.Count > 0)
         {
-            ConnectorManager? manager = instance.MEPModel?.ConnectorManager;
-            if (manager is not null)
-            {
-                foreach (Connector connector in manager.Connectors.Cast<Connector>())
-                    TallyConnector(connector, instance.Id, doc, votes);
-            }
-        }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
-        {
+            return pipeVotes
+                .OrderByDescending(pair => pair.Value.Count)
+                .Select(pair => pair.Value.Type)
+                .FirstOrDefault();
         }
 
-        return votes
+        return otherVotes
             .OrderByDescending(pair => pair.Value.Count)
             .Select(pair => pair.Value.Type)
             .FirstOrDefault();
     }
 
-    private static void TallyConnector(
-        Connector connector,
-        ElementId ownerId,
+    private static void CollectFromInstance(
+        FamilyInstance instance,
         Document doc,
-        Dictionary<ElementId, (MEPSystemType Type, int Count)> votes)
+        Dictionary<ElementId, (MEPSystemType Type, int Count)> pipeVotes,
+        Dictionary<ElementId, (MEPSystemType Type, int Count)> otherVotes,
+        HashSet<ElementId> visited,
+        int depth)
     {
+        if (depth > 6)
+            return;
+
+        ConnectorManager? manager;
         try
+        {
+            manager = instance.MEPModel?.ConnectorManager;
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            return;
+        }
+
+        if (manager is null)
+            return;
+
+        foreach (Connector connector in manager.Connectors.Cast<Connector>())
         {
             try
-        {
-            TallySystem(connector.MEPSystem, doc, votes);
-        }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
-        {
-        }
-        }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
-        {
-        }
-
-        try
-        {
-            foreach (Connector other in connector.AllRefs.Cast<Connector>())
             {
-                if (other.Owner is null || other.Owner.Id == ownerId)
+                TallySystem(connector.MEPSystem, doc, otherVotes);
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException)
+            {
+            }
+
+            IEnumerable<Connector> refs;
+            try
+            {
+                refs = connector.AllRefs.Cast<Connector>();
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException)
+            {
+                continue;
+            }
+
+            foreach (Connector other in refs)
+            {
+                Element? owner;
+                try
+                {
+                    owner = other.Owner;
+                }
+                catch (Autodesk.Revit.Exceptions.ApplicationException)
+                {
+                    continue;
+                }
+
+                if (owner is null || !visited.Add(owner.Id))
                     continue;
 
-                TallySystem(other.MEPSystem, doc, votes);
-                if (other.Owner is MEPCurve curve)
-                    TallySystem(curve.MEPSystem, doc, votes);
+                if (owner is MEPCurve curve)
+                {
+                    try
+                    {
+                        TallySystem(other.MEPSystem, doc, pipeVotes);
+                        TallySystem(curve.MEPSystem, doc, pipeVotes);
+                    }
+                    catch (Autodesk.Revit.Exceptions.ApplicationException)
+                    {
+                    }
+
+                    continue;
+                }
+
+                if (owner is FamilyInstance nested)
+                    CollectFromInstance(nested, doc, pipeVotes, otherVotes, visited, depth + 1);
             }
-        }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
-        {
         }
     }
 

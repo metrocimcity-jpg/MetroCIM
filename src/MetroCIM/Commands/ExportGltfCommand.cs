@@ -1,10 +1,9 @@
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using RevitXKT.Models;
-using RevitXKT.Services;
+using MetroCIM.Services;
 
-namespace RevitXKT.Commands;
+namespace MetroCIM.Commands;
 
 [Transaction(TransactionMode.ReadOnly)]
 [Regeneration(RegenerationOption.Manual)]
@@ -27,15 +26,27 @@ public sealed class ExportGltfCommand : IExternalCommand
         try
         {
             var exporter = new ViewExporter();
-            Dictionary<ResolvedAppearance, TriangleMesh>? meshes = exporter.BuildMeshes(document, view, out int elementCount);
-            if (meshes is null)
+            int count;
+            using (var progress = new ExportProgress(Title, 1))
+            {
+                progress.Report(0, "Collecting visible elements");
+                count = exporter.ExportColorBatched(
+                    document,
+                    view,
+                    outputPath,
+                    (current, total, status) =>
+                    {
+                        progress.Report(current, status, total);
+                    });
+            }
+
+            if (count == 0)
             {
                 CommandUi.Show(Title, "No visible 3D geometry was found in the active view.");
                 return Result.Failed;
             }
 
-            exporter.WriteGltf(outputPath, meshes);
-            CommandUi.Show(Title, $"glTF saved\n{outputPath}\nElements with geometry: {elementCount}");
+            CommandUi.Show(Title, $"glTF saved\n{outputPath}\nElements with geometry: {count}");
             return Result.Succeeded;
         }
         catch (Exception ex)

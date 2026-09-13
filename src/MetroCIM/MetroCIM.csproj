@@ -11,6 +11,10 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
     <Configurations>Debug;Release</Configurations>
+    <AssemblyName>MetroCIM</AssemblyName>
+    <RootNamespace>MetroCIM</RootNamespace>
+    <Product>MetroCIM</Product>
+    <Title>MetroCIM</Title>
     <RevitVersion>2027</RevitVersion>
     <DeployAddin Condition="'$(DeployAddin)' == ''">false</DeployAddin>
     <RevitAddinsDir>$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\</RevitAddinsDir>
@@ -26,18 +30,19 @@
 
   <ItemGroup>
     <Using Remove="System.Windows.Forms" />
-    <None Include="RevitXKT.addin" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="MetroCIM.addin" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <Target Name="DeployAddin" AfterTargets="Build" Condition="'$(DeployAddin)' == 'true'">
-    <MakeDir Directories="$(RevitAddinsDir)RevitXKT\" />
+    <MakeDir Directories="$(RevitAddinsDir)MetroCIM\" />
     <ItemGroup>
       <DeployFiles Include="$(OutputPath)*.dll" />
       <DeployFiles Include="$(OutputPath)*.pdb" />
       <DeployFiles Include="$(OutputPath)*.json" />
     </ItemGroup>
-    <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(RevitAddinsDir)RevitXKT\" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\RevitXKT.addin" DestinationFolder="$(RevitAddinsDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(RevitAddinsDir)MetroCIM\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\MetroCIM.addin" DestinationFolder="$(RevitAddinsDir)" SkipUnchangedFiles="true" />
+    <Delete Files="$(RevitAddinsDir)RevitXKT.addin" Condition="Exists('$(RevitAddinsDir)RevitXKT.addin')" />
   </Target>
 
 </Project>

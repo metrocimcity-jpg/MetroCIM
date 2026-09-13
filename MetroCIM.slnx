@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/MetroCIM/MetroCIM.csproj" />
+  <Project Path="src/MetroCIM.Tests/MetroCIM.Tests.csproj" />
+</Solution>

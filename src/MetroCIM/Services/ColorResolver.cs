@@ -1,20 +1,56 @@
 using Autodesk.Revit.DB;
-using RevitXKT.Models;
+using Autodesk.Revit.DB.Plumbing;
+using MetroCIM.Models;
 using RevitColor = Autodesk.Revit.DB.Color;
 
-namespace RevitXKT.Services;
+namespace MetroCIM.Services;
 
 public sealed class ColorResolver
 {
-    private static readonly BuiltInParameter[] SystemTypeParameters =
-    [
-        BuiltInParameter.RBS_PIPING_SYSTEM_TYPE_PARAM,
-        BuiltInParameter.RBS_DUCT_SYSTEM_TYPE_PARAM
-    ];
+    private readonly MepSystemTypeColor _systems = new();
+    private readonly Dictionary<ElementId, ResolvedAppearance> _byElement = [];
+    private IList<(FilterElement Filter, OverrideGraphicSettings Overrides)> _activeFilters = [];
+    private View3D? _boundView;
+
+    public void Bind(View3D view)
+    {
+        _boundView = view;
+        _byElement.Clear();
+        _activeFilters = [];
+        try
+        {
+            foreach (ElementId filterId in view.GetOrderedFilters())
+            {
+                if (!view.GetIsFilterEnabled(filterId) || !view.GetFilterVisibility(filterId))
+                    continue;
+                if (view.Document.GetElement(filterId) is not FilterElement filter)
+                    continue;
+                _activeFilters.Add((filter, view.GetFilterOverrides(filterId)));
+            }
+        }
+        catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+        {
+            _activeFilters = [];
+        }
+    }
 
     public ResolvedAppearance Resolve(Element element, View3D view)
     {
+        if (!ReferenceEquals(_boundView, view))
+            Bind(view);
+
+        if (_byElement.TryGetValue(element.Id, out ResolvedAppearance cached))
+            return cached;
+
+        ResolvedAppearance appearance = ResolveUncached(element, view);
+        _byElement[element.Id] = appearance;
+        return appearance;
+    }
+
+    private ResolvedAppearance ResolveUncached(Element element, View3D view)
+    {
         Element source = GetAppearanceSource(element);
+        bool piping = IsPipingElement(source);
         int? transparency = null;
 
         if (TryGetFilterAppearance(source, view, out ResolvedAppearance filterColor, out int? filterTransparency))
@@ -23,17 +59,17 @@ public sealed class ColorResolver
             return WithTransparency(filterColor, transparency);
         }
 
-        if (TryGetOverrideAppearance(source, view, out ResolvedAppearance overrideColor, out int? overrideTransparency))
+        if (TryGetOverrideAppearance(source, view, piping, out ResolvedAppearance overrideColor, out int? overrideTransparency))
         {
             transparency = overrideTransparency ?? transparency;
             return WithTransparency(overrideColor, transparency);
         }
 
-        if (TryGetSystemTypeAppearance(source, view, out ResolvedAppearance systemColor, out int? systemTransparency))
-        {
-            transparency = systemTransparency ?? transparency;
+        if (TryGetSystemTypeAppearance(source, view, piping, out ResolvedAppearance systemColor))
             return WithTransparency(systemColor, transparency);
-        }
+
+        if (piping)
+            return WithTransparency(ResolvedAppearance.Default, transparency);
 
         return WithTransparency(GetCategoryDefaultAppearance(source), transparency);
     }
@@ -50,7 +86,7 @@ public sealed class ColorResolver
         return element;
     }
 
-    private static bool TryGetFilterAppearance(
+    private bool TryGetFilterAppearance(
         Element element,
         View3D view,
         out ResolvedAppearance appearance,
@@ -60,28 +96,11 @@ public sealed class ColorResolver
         transparency = null;
         ResolvedAppearance? lastColor = null;
 
-        IList<ElementId> filterIds;
-        try
+        foreach ((FilterElement filter, OverrideGraphicSettings overrides) in _activeFilters)
         {
-            filterIds = view.GetOrderedFilters();
-        }
-        catch (Autodesk.Revit.Exceptions.InvalidOperationException)
-        {
-            return false;
-        }
-
-        foreach (ElementId filterId in filterIds)
-        {
-            if (!view.GetIsFilterEnabled(filterId) || !view.GetFilterVisibility(filterId))
-                continue;
-
-            if (view.Document.GetElement(filterId) is not FilterElement filter)
-                continue;
-
             if (!ElementPassesFilter(element, filter))
                 continue;
 
-            OverrideGraphicSettings overrides = view.GetFilterOverrides(filterId);
             if (TryGetSurfaceColor(overrides, out ResolvedAppearance color))
                 lastColor = color;
 
@@ -99,6 +118,7 @@ public sealed class ColorResolver
     private static bool TryGetOverrideAppearance(
         Element element,
         View3D view,
+        bool piping,
         out ResolvedAppearance appearance,
         out int? transparency)
     {
@@ -115,6 +135,9 @@ public sealed class ColorResolver
 
         if (TryGetTransparency(elementOverrides, out int elementTransparency))
             transparency = elementTransparency;
+
+        if (piping)
+            return false;
 
         if (element.Category is not null)
         {
@@ -140,14 +163,13 @@ public sealed class ColorResolver
         return false;
     }
 
-    private static bool TryGetSystemTypeAppearance(
+    private bool TryGetSystemTypeAppearance(
         Element element,
         View3D view,
-        out ResolvedAppearance appearance,
-        out int? transparency)
+        bool piping,
+        out ResolvedAppearance appearance)
     {
         appearance = default;
-        transparency = null;
 
         if (element.Category is not null)
         {
@@ -156,6 +178,7 @@ public sealed class ColorResolver
                 ElementId schemeId = view.GetColorFillSchemeId(element.Category.Id);
                 if (schemeId != ElementId.InvalidElementId &&
                     view.Document.GetElement(schemeId) is ColorFillScheme scheme &&
+                    !(piping && MepSystemTypeColor.IsPhysicalMaterialParameter(scheme.ParameterDefinition)) &&
                     TryMatchColorFill(element, scheme, out appearance))
                 {
                     return true;
@@ -167,7 +190,7 @@ public sealed class ColorResolver
             }
         }
 
-        return TryGetMepSystemColor(element, out appearance);
+        return _systems.TryGet(element, out appearance);
     }
 
     private static ResolvedAppearance GetCategoryDefaultAppearance(Element element)
@@ -188,7 +211,7 @@ public sealed class ColorResolver
         {
             if (doc.GetElement(materialId) is Material material &&
                 TryFromRevitColor(material.Color, material.Transparency, out ResolvedAppearance fromMaterial) &&
-                !IsNearBlack(fromMaterial))
+                !fromMaterial.IsNearBlack)
             {
                 return fromMaterial;
             }
@@ -196,7 +219,7 @@ public sealed class ColorResolver
 
         if (element.Category?.Material is { } categoryMaterial &&
             TryFromRevitColor(categoryMaterial.Color, categoryMaterial.Transparency, out ResolvedAppearance fromCategoryMaterial) &&
-            !IsNearBlack(fromCategoryMaterial))
+            !fromCategoryMaterial.IsNearBlack)
         {
             return fromCategoryMaterial;
         }
@@ -268,109 +291,41 @@ public sealed class ColorResolver
         };
     }
 
-    private static bool TryGetMepSystemColor(Element element, out ResolvedAppearance appearance)
+    private static bool IsPipingElement(Element element)
     {
-        appearance = default;
-        Document doc = element.Document;
-
-        if (TryGetSystemTypeId(element, out ElementId systemTypeId) &&
-            doc.GetElement(systemTypeId) is MEPSystemType fromParameter &&
-            TryFromSystemType(fromParameter, out appearance))
-        {
+        if (element is Pipe or FlexPipe or PipeInsulation)
             return true;
+
+        BuiltInCategory category = BuiltInCategory.INVALID;
+        try
+        {
+            if (element.Category is not null)
+                category = element.Category.BuiltInCategory;
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            category = BuiltInCategory.INVALID;
         }
 
-        if (element is MEPCurve curve)
+        if (category == BuiltInCategory.INVALID && element.Category is not null)
         {
             try
             {
-                MEPSystem? system = curve.MEPSystem;
-                if (system is not null &&
-                    doc.GetElement(system.GetTypeId()) is MEPSystemType systemType &&
-                    TryFromSystemType(systemType, out appearance))
-                {
-                    return true;
-                }
+                category = (BuiltInCategory)element.Category.Id.Value;
             }
-            catch (Autodesk.Revit.Exceptions.ApplicationException)
+            catch (InvalidCastException)
             {
-                // Unassigned or invalid MEP system.
+                return false;
             }
         }
 
-        if (element is FamilyInstance instance)
-        {
-            try
-            {
-                ConnectorManager? manager = instance.MEPModel?.ConnectorManager;
-                if (manager is not null)
-                {
-                    foreach (Connector connector in manager.Connectors.Cast<Connector>())
-                    {
-                        if (connector.MEPSystem is { } system &&
-                            doc.GetElement(system.GetTypeId()) is MEPSystemType systemType &&
-                            TryFromSystemType(systemType, out appearance))
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-            catch (Autodesk.Revit.Exceptions.ApplicationException)
-            {
-                // Family has no MEP connectors.
-            }
-        }
-
-        return false;
-    }
-
-    private static bool TryGetSystemTypeId(Element element, out ElementId systemTypeId)
-    {
-        foreach (BuiltInParameter builtIn in SystemTypeParameters)
-        {
-            try
-            {
-                Parameter? parameter = element.get_Parameter(builtIn);
-                if (parameter is { HasValue: true, StorageType: StorageType.ElementId })
-                {
-                    ElementId id = parameter.AsElementId();
-                    if (id != ElementId.InvalidElementId)
-                    {
-                        systemTypeId = id;
-                        return true;
-                    }
-                }
-            }
-            catch (Autodesk.Revit.Exceptions.ApplicationException)
-            {
-                // Parameter is not present on this element.
-            }
-        }
-
-        systemTypeId = ElementId.InvalidElementId;
-        return false;
-    }
-
-    private static bool TryFromSystemType(MEPSystemType systemType, out ResolvedAppearance appearance)
-    {
-        bool hasFill = TryFromRevitColor(systemType.FillColor, 0, out ResolvedAppearance fill);
-        bool hasLine = TryFromRevitColor(systemType.LineColor, 0, out ResolvedAppearance line);
-
-        if (hasFill && !IsNearBlack(fill))
-        {
-            appearance = fill;
-            return true;
-        }
-
-        if (hasLine)
-        {
-            appearance = line;
-            return true;
-        }
-
-        appearance = fill;
-        return hasFill;
+        return category is
+            BuiltInCategory.OST_PipeCurves or
+            BuiltInCategory.OST_FlexPipeCurves or
+            BuiltInCategory.OST_PipeInsulations or
+            BuiltInCategory.OST_PipeFitting or
+            BuiltInCategory.OST_PipeAccessory or
+            BuiltInCategory.OST_PlaceHolderPipes;
     }
 
     private static Parameter? FindParameter(Element element, ElementId definitionId)
@@ -424,9 +379,6 @@ public sealed class ColorResolver
         appearance = ResolvedAppearance.FromRgb(color.Red, color.Green, color.Blue, transparencyPercent);
         return true;
     }
-
-    private static bool IsNearBlack(ResolvedAppearance color) =>
-        color.R < 16 && color.G < 16 && color.B < 16;
 
     private static ResolvedAppearance WithTransparency(ResolvedAppearance color, int? transparency)
     {

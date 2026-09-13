@@ -1,10 +1,11 @@
 # Architecture
 
-Keep types small: `VisibilityService`, `ColorResolver`, `GeometryBuilder`, `GltfExporter`, `XktConverter`, `ViewExporter`. Do not merge XKT conversion into the glTF writer.
+Keep types small: `VisibilityService`, `ColorResolver`, `MepSystemTypeColor`, `GeometryBuilder`, `GltfExporter`, `XktConverter`, `ViewExporter`, `MetadataExporter`, `IfcExporter`, `IfcAppearanceApplier`. Do not merge XKT conversion into the glTF writer.
 
 ## Commands
 - `ExportGltfCommand` — validate `View3D`, pick `.glb`/`.gltf`, build meshes, save glTF
-- `ExportXktCommand` — same mesh pipeline, require xeokit-convert first, pick `.xkt`, save sibling `.glb`, convert
+- `ExportXktCommand` — same mesh pipeline, require xeokit-convert first, pick `.xkt`, write sibling `.glb` and `metadata.json`, convert with `-m`
+- `ExportIfcCommand` — any open view, pick a Revit IFC setup, pick `.ifc`, `Document.Export` with that setup's options
 
 Shared UI lives in `CommandUi`. Shared mesh + glTF write lives in `ViewExporter`.
 
@@ -20,23 +21,27 @@ Shared UI lives in `CommandUi`. Shared mesh + glTF write lives in `ViewExporter`
 Use **surface / fill** colors, never projection-line color, as mesh albedo.
 
 1. View filter surface overrides — `GetOrderedFilters()`, `GetFilterOverrides`
-2. Element then category **surface** overrides
-3. Color fill scheme, else MEP system type **FillColor** then `LineColor`
-   (`RBS_PIPING_SYSTEM_TYPE_PARAM` / `RBS_DUCT_SYSTEM_TYPE_PARAM`, then `MEPCurve.MEPSystem`)
-4. Non-black materials, else a neutral default
+2. Element **surface** overrides (category overrides are skipped for pipes so they cannot hide system-type material)
+3. Color fill scheme **unless** it is driven by pipe physical material
+4. **`MepSystemTypeColor`**: `PipingSystemType.MaterialId` (never pipe/`PipeType` material), then system FillColor, then LineColor
+5. Never pipe segment material, pipe type material, `RBS_PIPE_MATERIAL_PARAM`, or `element.GetMaterialIds()` on pipes
+6. Other categories: non-black element materials, else a neutral default
 
 `PipeInsulation` / other `InsulationLiningBase` elements inherit appearance from `HostElementId` so insulated pipes match system-type colors.
 
 ## Geometry and glTF
 - `element.get_Geometry(new Options { View = view })`
-- Triangulate solids/meshes, feet → meters, Z-up → glTF Y-up
-- Group by resolved color; `SceneBuilder` → `SaveGLB` / `SaveGLTF`
+- Triangulate solids/meshes (Coarse 0.50, Medium 0.55, Fine 0.65), feet → meters, Z-up → glTF Y-up
+- Group by resolved color; split large color batches so xeokit-convert can process them; `SceneBuilder` → `SaveGLB` / `SaveGLTF`
 
 ## XKT
-Resolve `node` + `convert2xkt.js` (or `xeokit-convert` on PATH). Run:
+Resolve `node` + `convert2xkt.js` (or `xeokit-convert` on PATH). Write the same color-batched glTF as Export glTF, plus xeokit `metadata.json` (metaObjects + propertySets) next to the `.xkt`. Run:
 
 ```text
-node --max-old-space-size=8192 convert2xkt.js -s "<glb>" -o "<xkt>"
+node --max-old-space-size=16384 convert2xkt.js -s "<glb>" -o "<xkt>" -m "<metadata.json>" -e 1
 ```
 
 Detect the CLI before conversion. Missing tool message: `npm install -g @xeokit/xeokit-convert`.
+
+## IFC
+Load Revit's IFC UI setups (`Autodesk.IFC.Export.UI`): in-session, built-in, and document-saved. Before `document.Export`, apply the same `ColorResolver` colors used by glTF (system-type material / fill, not pipe physical material) so IFC surface styles match the 3D view. Snapshot the IFC, then roll back those temporary materials. Export with the file name **without** extension, `ActiveViewId` as the numeric view id, tessellation **0.8**, and retry without `FilterViewId` if the file is empty.

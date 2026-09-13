@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace RevitXKT.Services;
+namespace MetroCIM.Services;
 
 public sealed class XktConverter
 {
@@ -10,15 +10,19 @@ public sealed class XktConverter
     public XktToolStatus Detect()
     {
         bool hasNode = FindOnPath("node.exe") is not null || FindOnPath("node") is not null;
-        if (ResolveStartInfo("placeholder.glb", "placeholder.xkt") is not null)
+        if (ResolveStartInfo("placeholder.glb", "placeholder.xkt", null) is not null)
             return XktToolStatus.Available;
 
         return hasNode ? XktToolStatus.MissingXeokitConvert : XktToolStatus.MissingNode;
     }
 
-    public XktConversionResult Convert(string gltfPath, string xktPath)
+    public XktConversionResult Convert(
+        string gltfPath,
+        string xktPath,
+        string? metadataPath = null,
+        Action? heartbeat = null)
     {
-        ProcessStartInfo? startInfo = ResolveStartInfo(gltfPath, xktPath);
+        ProcessStartInfo? startInfo = ResolveStartInfo(gltfPath, xktPath, metadataPath);
         if (startInfo is null)
         {
             XktToolStatus status = Detect();
@@ -42,19 +46,22 @@ public sealed class XktConverter
             if (process is null)
                 return XktConversionResult.Failed("Failed to start xeokit-convert.");
 
-            string stdout = process.StandardOutput.ReadToEnd();
-            string stderr = process.StandardError.ReadToEnd();
-            process.WaitForExit();
+            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+            while (!process.WaitForExit(250))
+                heartbeat?.Invoke();
 
-            if (process.ExitCode != 0 || !File.Exists(xktPath))
-            {
-                string detail = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
-                if (string.IsNullOrWhiteSpace(detail))
-                    detail = $"xeokit-convert exited with code {process.ExitCode}.";
-                return XktConversionResult.Failed(detail.Trim());
-            }
+            string stdout = stdoutTask.GetAwaiter().GetResult();
+            string stderr = stderrTask.GetAwaiter().GetResult();
 
-            return XktConversionResult.Succeeded(xktPath);
+            bool wrote = File.Exists(xktPath) && new FileInfo(xktPath).Length > 0;
+            if (wrote)
+                return XktConversionResult.Succeeded(xktPath);
+
+            string detail = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
+            if (string.IsNullOrWhiteSpace(detail))
+                detail = $"xeokit-convert exited with code {process.ExitCode}.";
+            return XktConversionResult.Failed(detail.Trim());
         }
         catch (Exception ex)
         {
@@ -62,9 +69,11 @@ public sealed class XktConverter
         }
     }
 
-    private static ProcessStartInfo? ResolveStartInfo(string gltfPath, string xktPath)
+    private static ProcessStartInfo? ResolveStartInfo(string gltfPath, string xktPath, string? metadataPath)
     {
-        string arguments = $"-s \"{gltfPath}\" -o \"{xktPath}\"";
+        string arguments = $"-s \"{gltfPath}\" -o \"{xktPath}\" -e 1";
+        if (!string.IsNullOrWhiteSpace(metadataPath))
+            arguments += $" -m \"{metadataPath}\"";
 
         string? script = FindConvertScript();
         string? node = FindOnPath("node.exe") ?? FindOnPath("node");
@@ -73,7 +82,7 @@ public sealed class XktConverter
             return new ProcessStartInfo
             {
                 FileName = node,
-                Arguments = $"--max-old-space-size=8192 \"{script}\" {arguments}"
+                Arguments = $"--max-old-space-size=16384 \"{script}\" {arguments}"
             };
         }
 

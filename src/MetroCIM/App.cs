@@ -1,12 +1,12 @@
 using Autodesk.Revit.UI;
-using RevitXKT.Commands;
+using MetroCIM.Commands;
 using System.Reflection;
 
-namespace RevitXKT;
+namespace MetroCIM;
 
 public sealed class App : IExternalApplication
 {
-    public const string TabName = "RevitXKT";
+    public const string TabName = "MetroCIM";
     public const string PanelName = "Export";
 
     public Result OnStartup(UIControlledApplication application)
@@ -46,8 +46,20 @@ public sealed class App : IExternalApplication
                 "Requires Node.js and `npm install -g @xeokit/xeokit-convert`."
         };
 
+        var ifcButton = new PushButtonData(
+            "ExportIfc",
+            "Export\nIFC",
+            assemblyPath,
+            typeof(ExportIfcCommand).FullName)
+        {
+            ToolTip = "Export IFC (Revit IFC setup)",
+            LongDescription =
+                "Exports the model to IFC using a Revit IFC export setup (in-session, built-in, or saved in this project)."
+        };
+
         panel.AddItem(gltfButton);
         panel.AddItem(xktButton);
+        panel.AddItem(ifcButton);
         return Result.Succeeded;
     }
 

@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace RevitXKT.Models;
+namespace MetroCIM.Models;
 
 public sealed class TriangleMesh
 {

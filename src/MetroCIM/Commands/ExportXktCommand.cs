@@ -1,10 +1,10 @@
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using RevitXKT.Models;
-using RevitXKT.Services;
+using MetroCIM.Models;
+using MetroCIM.Services;
 
-namespace RevitXKT.Commands;
+namespace MetroCIM.Commands;
 
 [Transaction(TransactionMode.ReadOnly)]
 [Regeneration(RegenerationOption.Manual)]
@@ -35,31 +35,54 @@ public sealed class ExportXktCommand : IExternalCommand
         if (xktPath is null)
             return Result.Cancelled;
 
+        string directory = Path.GetDirectoryName(xktPath)!;
         string gltfPath = Path.ChangeExtension(xktPath, ".glb");
+        string metadataPath = Path.Combine(directory, "metadata.json");
 
         try
         {
             var exporter = new ViewExporter();
-            Dictionary<ResolvedAppearance, TriangleMesh>? meshes = exporter.BuildMeshes(document, view, out int elementCount);
-            if (meshes is null)
-            {
-                CommandUi.Show(Title, "No visible 3D geometry was found in the active view.");
-                return Result.Failed;
-            }
+            var metadata = new MetadataExporter();
+            var exported = new List<ExportedElement>();
+            int count;
+            XktConversionResult conversion;
 
-            exporter.WriteGltf(gltfPath, meshes);
-            XktConversionResult conversion = converter.Convert(gltfPath, xktPath);
+            using (var progress = new ExportProgress(Title, 1))
+            {
+                progress.Report(0, "Collecting visible elements");
+                count = exporter.ExportColorBatched(
+                    document,
+                    view,
+                    gltfPath,
+                    (current, total, status) => progress.Report(current, status, total),
+                    exported);
+
+                if (count == 0)
+                {
+                    CommandUi.Show(Title, "No visible 3D geometry was found in the active view.");
+                    return Result.Failed;
+                }
+
+                progress.Report(count, "Writing metadata.json", count);
+                metadata.Write(metadataPath, document, view, exported);
+                progress.UseMarquee("Converting to XKT — Revit stays responsive");
+                conversion = converter.Convert(
+                    gltfPath,
+                    xktPath,
+                    metadataPath,
+                    progress.Pump);
+            }
             if (conversion.Success)
             {
                 CommandUi.Show(
                     Title,
-                    $"XKT saved\n{conversion.Path}\n\nIntermediate glTF\n{gltfPath}\nElements with geometry: {elementCount}");
+                    $"XKT saved\n{conversion.Path}\n\nmetadata.json\n{metadataPath}\n\nIntermediate glTF\n{gltfPath}\nElements with geometry: {count}");
                 return Result.Succeeded;
             }
 
             CommandUi.Show(
                 Title,
-                $"XKT conversion failed.\n{conversion.Error}\n\nIntermediate glTF was saved:\n{gltfPath}");
+                $"XKT conversion failed.\n{conversion.Error}\n\nmetadata.json was saved:\n{metadataPath}\nIntermediate glTF:\n{gltfPath}");
             return Result.Failed;
         }
         catch (Exception ex)

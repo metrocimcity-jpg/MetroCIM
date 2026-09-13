@@ -1,10 +1,10 @@
 using Autodesk.Revit.DB;
 
-namespace RevitXKT.Services;
+namespace MetroCIM.Services;
 
 public sealed class VisibilityService
 {
-    public IReadOnlyList<Element> GetVisibleElements(Document doc, View3D view)
+    public IReadOnlyList<Element> GetVisibleElements(Document doc, View3D view, Action<int>? heartbeat = null)
     {
         var results = new List<Element>();
 
@@ -13,10 +13,17 @@ public sealed class VisibilityService
             .WhereElementIsNotElementType();
 
         bool tempHideIsolate = view.IsTemporaryHideIsolateActive();
+        var hiddenCategories = new Dictionary<ElementId, bool>();
+        var hiddenWorksets = new Dictionary<WorksetId, bool>();
+        int scanned = 0;
 
         foreach (Element element in collector)
         {
-            if (!IsExportable(element, view, tempHideIsolate))
+            scanned++;
+            if ((scanned & 127) == 0)
+                heartbeat?.Invoke(scanned);
+
+            if (!IsExportable(element, view, tempHideIsolate, hiddenCategories, hiddenWorksets))
                 continue;
 
             results.Add(element);
@@ -25,7 +32,12 @@ public sealed class VisibilityService
         return results;
     }
 
-    private static bool IsExportable(Element element, View3D view, bool tempHideIsolate)
+    private static bool IsExportable(
+        Element element,
+        View3D view,
+        bool tempHideIsolate,
+        Dictionary<ElementId, bool> hiddenCategories,
+        Dictionary<WorksetId, bool> hiddenWorksets)
     {
         if (element is RevitLinkInstance or ElementType)
             return false;
@@ -37,7 +49,7 @@ public sealed class VisibilityService
         if (IsHiddenInView(element, view))
             return false;
 
-        if (IsCategoryHidden(view, category.Id))
+        if (IsCategoryHidden(view, category.Id, hiddenCategories))
             return false;
 
         if (tempHideIsolate &&
@@ -46,7 +58,7 @@ public sealed class VisibilityService
             return false;
         }
 
-        if (IsHiddenByWorkset(element, view))
+        if (IsHiddenByWorkset(element, view, hiddenWorksets))
             return false;
 
         return true;
@@ -64,39 +76,46 @@ public sealed class VisibilityService
         }
     }
 
-    private static bool IsCategoryHidden(View view, ElementId categoryId)
+    private static bool IsCategoryHidden(View view, ElementId categoryId, Dictionary<ElementId, bool> cache)
     {
+        if (cache.TryGetValue(categoryId, out bool hidden))
+            return hidden;
+
         try
         {
-            return view.GetCategoryHidden(categoryId);
+            hidden = view.GetCategoryHidden(categoryId);
         }
         catch (Autodesk.Revit.Exceptions.ApplicationException)
         {
-            return false;
+            hidden = false;
         }
+
+        cache[categoryId] = hidden;
+        return hidden;
     }
 
-    private static bool IsHiddenByWorkset(Element element, View view)
+    private static bool IsHiddenByWorkset(Element element, View view, Dictionary<WorksetId, bool> cache)
     {
         WorksetId worksetId = element.WorksetId;
         if (worksetId == WorksetId.InvalidWorksetId)
             return false;
 
+        if (cache.TryGetValue(worksetId, out bool hidden))
+            return hidden;
+
         try
         {
             WorksetVisibility visibility = view.GetWorksetVisibility(worksetId);
-            if (visibility == WorksetVisibility.Hidden)
-                return true;
-
-            if (visibility == WorksetVisibility.Visible)
-                return false;
-
-            Workset workset = element.Document.GetWorksetTable().GetWorkset(worksetId);
-            return !workset.IsVisibleByDefault;
+            hidden = visibility == WorksetVisibility.Hidden
+                     || (visibility != WorksetVisibility.Visible
+                         && !element.Document.GetWorksetTable().GetWorkset(worksetId).IsVisibleByDefault);
         }
         catch (Autodesk.Revit.Exceptions.ApplicationException)
         {
-            return false;
+            hidden = false;
         }
+
+        cache[worksetId] = hidden;
+        return hidden;
     }
 }

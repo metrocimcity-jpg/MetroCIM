@@ -1,8 +1,9 @@
-# Revit 2027 Add-in: View-Accurate glTF and XKT Export
+# Revit 2027 Add-in: MetroCIM
 
 ## Goal
-Export the **active 3D view** so the file matches what is on screen:
+Export the **active 3D view** so glTF/XKT match what is on screen, and export **IFC** using a Revit IFC setup.
 
+glTF / XKT:
 - Only currently visible elements (view visibility, temporary hide/isolate, category/workset)
 - View filter colors, patterns, and transparency
 - Element and category graphic overrides
@@ -10,18 +11,21 @@ Export the **active 3D view** so the file matches what is on screen:
 
 ## Stack
 - Revit 2027 API, C#, **.NET 10** (`net10.0-windows`)
-- `IExternalApplication` ribbon tab **RevitXKT** with two commands
+- `IExternalApplication` ribbon tab **MetroCIM**
 - glTF via **SharpGLTF.Toolkit** (NuGet)
 - XKT via **xeokit-convert** (Node.js CLI): glTF → `.xkt`
   - Install: `npm install -g @xeokit/xeokit-convert`
   - The XKT command calls this CLI with `Process.Start`
   - If Node.js or xeokit-convert is missing, XKT export stops and shows the install hint
+- IFC via Revit's `Document.Export` and the official IFC export setups (in-session, built-in, and saved in the model)
 
 ## Ribbon
+Tab **MetroCIM**, panel **Export**:
 - **Export glTF** — writes `.glb` or `.gltf` only
-- **Export XKT** — writes intermediate `.glb` next to the chosen `.xkt`, then converts
+- **Export XKT** — writes intermediate `.glb` and `metadata.json` next to the chosen `.xkt`, then converts
+- **Export IFC** — writes `.ifc` using the selected Revit IFC setup
 
 ## Non-goals
 - No import
 - No native C# XKT writer
-- No 2D views or sheets
+- No 2D views or sheets for glTF/XKT

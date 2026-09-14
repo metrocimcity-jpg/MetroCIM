@@ -44,15 +44,14 @@ public sealed class IfcExporter
             return false;
         }
 
-        Type? mapType = FindType(assembly, "IFCExportConfigurationsMap");
-        Type? configType = FindType(assembly, "IFCExportConfiguration");
-        if (mapType is null || configType is null)
+        if (!TryFindSetupTypes(document, assembly, out Type mapType, out Type configType, out Assembly setupAssembly))
         {
             error = $"Revit's IFC exporter loaded ({assembly.GetName().Name}) but setup types were not found.";
             return false;
         }
 
         SetStaticProperty(FindType(assembly, "IFCCommandOverrideApplication"), "TheDocument", document);
+        SetStaticProperty(FindType(setupAssembly, "IFCCommandOverrideApplication"), "TheDocument", document);
 
         object? map;
         try
@@ -74,33 +73,18 @@ public sealed class IfcExporter
 
         Invoke(mapType, "AddBuiltInConfigurations", map, []);
 
-        object? lastSelected = GetStaticProperty(FindType(assembly, "IFCExport"), "LastSelectedConfig");
-        if (!TryInvoke(mapType, "AddSavedConfigurations", map, lastSelected is null ? [] : [lastSelected]) &&
-            !TryInvoke(mapType, "AddSavedConfigurations", map, [document]) &&
-            !TryInvoke(mapType, "AddSavedConfigurations", map, []))
+        object? lastSelected = null;
+        try
         {
-            error = "Could not read saved IFC setups from this model.";
-            return false;
+            lastSelected = GetStaticProperty(FindType(assembly, "IFCExport"), "LastSelectedConfig")
+                           ?? GetStaticProperty(FindType(setupAssembly, "IFCExport"), "LastSelectedConfig");
+        }
+        catch (Exception)
+        {
         }
 
-        var setups = new List<(string Name, object Config)>();
-        object? values = mapType.GetProperty("Values")?.GetValue(map) ?? map;
-        if (values is IEnumerable enumerable)
-        {
-            foreach (object item in enumerable)
-            {
-                object config = item;
-                PropertyInfo? valueProperty = item.GetType().GetProperty("Value");
-                if (valueProperty is not null)
-                    config = valueProperty.GetValue(item) ?? item;
-
-                if (config.GetType().GetProperty("Name")?.GetValue(config) is string name &&
-                    !string.IsNullOrWhiteSpace(name))
-                {
-                    setups.Add((name, config));
-                }
-            }
-        }
+        AddSavedConfigurations(mapType, map, document, lastSelected);
+        List<(string Name, object Config)> setups = CollectSetups(map);
 
         if (setups.Count == 0)
         {
@@ -423,6 +407,7 @@ public sealed class IfcExporter
 
             yield return Path.Combine(directory, "AddIns", "IFCExporterUI", "Autodesk.IFC.Export.UI.dll");
             yield return Path.Combine(directory, "Autodesk.IFC.Export.UI.dll");
+            yield return Path.Combine(directory, "Revit.IFC.Export.dll");
         }
     }
 
@@ -437,7 +422,8 @@ public sealed class IfcExporter
 
     private static Type? FindType(Assembly assembly, string simpleName)
     {
-        Type? exact = assembly.GetType($"BIM.IFC.Export.UI.{simpleName}")
+        Type? exact = assembly.GetType($"Revit.IFC.Export.Utility.{simpleName}")
+                      ?? assembly.GetType($"BIM.IFC.Export.UI.{simpleName}")
                       ?? assembly.GetType($"Autodesk.IFC.Export.UI.{simpleName}");
         if (exact is not null)
             return exact;
@@ -459,7 +445,9 @@ public sealed class IfcExporter
             return withDocument.Invoke([document]);
 
         object? map = Activator.CreateInstance(mapType);
-        mapType.GetProperty("Document")?.SetValue(map, document);
+        PropertyInfo? documentProperty = mapType.GetProperty("Document");
+        MethodInfo? setter = documentProperty?.GetSetMethod(nonPublic: true);
+        setter?.Invoke(map, [document]);
         return map;
     }
 
@@ -536,12 +524,271 @@ public sealed class IfcExporter
 
     private static object? GetStaticProperty(Type? type, string propertyName)
     {
-        return type?.GetProperty(propertyName)?.GetValue(null);
+        try
+        {
+            return type?.GetProperty(
+                propertyName,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)?.GetValue(null);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static bool TryFindSetupTypes(
+        Document document,
+        Assembly uiAssembly,
+        out Type mapType,
+        out Type configType,
+        out Assembly setupAssembly)
+    {
+        mapType = null!;
+        configType = null!;
+        setupAssembly = uiAssembly;
+        Type? fallbackMap = null;
+        Type? fallbackConfig = null;
+        Assembly? fallbackAssembly = null;
+
+        foreach (Assembly assembly in EnumerateConfigurationAssemblies(document, uiAssembly))
+        {
+            Type? map = FindType(assembly, "IFCExportConfigurationsMap");
+            Type? config = FindType(assembly, "IFCExportConfiguration");
+            if (map is null || config is null)
+                continue;
+
+            if (map.Namespace is "Revit.IFC.Export.Utility")
+            {
+                mapType = map;
+                configType = config;
+                setupAssembly = assembly;
+                return true;
+            }
+
+            fallbackMap ??= map;
+            fallbackConfig ??= config;
+            fallbackAssembly ??= assembly;
+        }
+
+        if (fallbackMap is null || fallbackConfig is null || fallbackAssembly is null)
+            return false;
+
+        mapType = fallbackMap;
+        configType = fallbackConfig;
+        setupAssembly = fallbackAssembly;
+        return true;
+    }
+
+    private static IEnumerable<Assembly> EnumerateConfigurationAssemblies(Document document, Assembly uiAssembly)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { uiAssembly.FullName ?? uiAssembly.GetName().Name ?? "ui" };
+        yield return uiAssembly;
+
+        foreach (Assembly assembly in EnumerateAssemblies())
+        {
+            string? name = assembly.GetName().Name;
+            if (name is null || !seen.Add(assembly.FullName ?? name))
+                continue;
+
+            if (name.Equals("Revit.IFC.Export", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("Autodesk.IFC.Export.UI", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("IFCExporterUIOverride", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return assembly;
+            }
+        }
+
+        foreach (string path in CandidateDllPaths(document))
+        {
+            if (!File.Exists(path))
+                continue;
+
+            string key = path;
+            if (!seen.Add(key))
+                continue;
+
+            Assembly? loaded = LoadFromPath(path);
+            if (loaded is not null)
+                yield return loaded;
+        }
+    }
+
+    private static Assembly? LoadFromPath(string path)
+    {
+        try
+        {
+            AssemblyLoadContext? context = AssemblyLoadContext.GetLoadContext(typeof(IfcExporter).Assembly);
+            return context is not null
+                ? context.LoadFromAssemblyPath(path)
+                : Assembly.LoadFrom(path);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static List<(string Name, object Config)> CollectSetups(object map)
+    {
+        var setups = new List<(string Name, object Config)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Type mapType = map.GetType();
+        AddSetups(mapType.GetProperty("Values")?.GetValue(map), setups, seen);
+        AddSetups(mapType.GetProperty("Configurations")?.GetValue(map), setups, seen);
+        AddSetups(map, setups, seen);
+        return setups;
+    }
+
+    private static void AddSetups(
+        object? source,
+        List<(string Name, object Config)> setups,
+        HashSet<string> seen)
+    {
+        if (source is not IEnumerable enumerable || source is string)
+            return;
+
+        foreach (object item in enumerable)
+        {
+            object config = item;
+            PropertyInfo? valueProperty = item.GetType().GetProperty("Value");
+            if (valueProperty is not null)
+                config = valueProperty.GetValue(item) ?? item;
+
+            if (config.GetType().GetProperty("Name")?.GetValue(config) is string name &&
+                !string.IsNullOrWhiteSpace(name) &&
+                seen.Add(name))
+            {
+                setups.Add((name, config));
+            }
+        }
+    }
+
+    private static void AddSavedConfigurations(
+        Type mapType,
+        object map,
+        Document document,
+        object? lastSelected)
+    {
+        BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+        foreach (MethodInfo method in mapType.GetMethods(flags))
+        {
+            if (method.Name != "AddSavedConfigurations")
+                continue;
+
+            ParameterInfo[] parameters = method.GetParameters();
+            object?[]? args = null;
+            if (parameters.Length == 0)
+            {
+                args = [];
+            }
+            else if (parameters.Length == 1 && parameters[0].ParameterType == typeof(Document))
+            {
+                args = [document];
+            }
+            else if (parameters.Length == 1 && TryCreateSavedConfigArgument(parameters[0].ParameterType, lastSelected, out object argument))
+            {
+                args = [argument];
+            }
+            else if (parameters.Length == 1 && lastSelected is not null &&
+                     parameters[0].ParameterType.IsInstanceOfType(lastSelected))
+            {
+                args = [lastSelected];
+            }
+
+            if (args is null)
+                continue;
+
+            try
+            {
+                method.Invoke(map, args);
+                return;
+            }
+            catch (TargetInvocationException)
+            {
+            }
+            catch (ArgumentException)
+            {
+            }
+        }
+    }
+
+    private static bool TryCreateSavedConfigArgument(
+        Type parameterType,
+        object? lastSelected,
+        out object argument)
+    {
+        argument = null!;
+        Type? valueType = GetDictionaryValueType(parameterType);
+        if (valueType is null)
+            return false;
+
+        Type concrete = typeof(Dictionary<,>).MakeGenericType(typeof(string), valueType);
+        object dict = Activator.CreateInstance(concrete)!;
+        MethodInfo add = concrete.GetMethod("Add")!;
+
+        if (lastSelected is IDictionary existing)
+        {
+            foreach (DictionaryEntry entry in existing)
+            {
+                if (entry.Key is string name &&
+                    !string.IsNullOrWhiteSpace(name) &&
+                    entry.Value is not null &&
+                    valueType.IsInstanceOfType(entry.Value))
+                {
+                    add.Invoke(dict, [name, entry.Value]);
+                }
+            }
+        }
+        else if (lastSelected is not null && valueType.IsInstanceOfType(lastSelected))
+        {
+            string? name = lastSelected.GetType().GetProperty("Name")?.GetValue(lastSelected) as string;
+            if (!string.IsNullOrWhiteSpace(name))
+                add.Invoke(dict, [name, lastSelected]);
+        }
+
+        argument = dict;
+        return parameterType.IsInstanceOfType(dict);
+    }
+
+    private static Type? GetDictionaryValueType(Type parameterType)
+    {
+        Type? dictionary = parameterType.IsGenericType ? parameterType : null;
+        if (dictionary is null)
+        {
+            dictionary = parameterType.GetInterfaces()
+                .FirstOrDefault(type => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IDictionary<,>));
+        }
+
+        if (dictionary is null || !dictionary.IsGenericType)
+            return null;
+
+        Type definition = dictionary.GetGenericTypeDefinition();
+        if (definition != typeof(IDictionary<,>) && definition != typeof(Dictionary<,>))
+            return null;
+
+        Type[] args = dictionary.GetGenericArguments();
+        return args.Length == 2 && args[0] == typeof(string) ? args[1] : null;
     }
 
     private static void SetStaticProperty(Type? type, string propertyName, object? value)
     {
-        type?.GetProperty(propertyName)?.SetValue(null, value);
+        if (type is null)
+            return;
+
+        PropertyInfo? property = type.GetProperty(
+            propertyName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+        MethodInfo? setter = property?.GetSetMethod(nonPublic: true);
+        if (setter is null)
+            return;
+
+        try
+        {
+            setter.Invoke(null, [value]);
+        }
+        catch (Exception)
+        {
+        }
     }
 
     private static object? Invoke(Type type, string name, object? instance, object?[] args)
@@ -573,7 +820,7 @@ public sealed class IfcExporter
             }
             catch (TargetInvocationException)
             {
-                return false;
+                continue;
             }
             catch (ArgumentException)
             {

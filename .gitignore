@@ -1,3 +1,6 @@
+## Optional local Revit year override (RevitVersion=2025|2026|2027)
+Directory.Build.local.props
+
 ## Build
 bin/
 obj/

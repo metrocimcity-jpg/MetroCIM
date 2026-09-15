@@ -387,8 +387,6 @@ public sealed class IfcExporter
             // Main module path can be restricted.
         }
 
-        directories.Add(@"C:\Program Files\Autodesk\Revit 2027");
-
         string version = document.Application.VersionNumber;
         directories.Add(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),

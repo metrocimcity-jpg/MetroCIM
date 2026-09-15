@@ -3,12 +3,7 @@ namespace MetroCIM.Services;
 internal static class IfcSetupPreference
 {
     public static string FilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Autodesk",
-        "Revit",
-        "Addins",
-        "2027",
-        "MetroCIM",
+        Path.GetDirectoryName(typeof(IfcSetupPreference).Assembly.Location)!,
         "last-ifc-setup.txt");
 
     public static string? Read()

@@ -1,4 +1,4 @@
-# Revit 2027 Add-in: MetroCIM
+# Revit 2025 / 2026 / 2027 Add-in: MetroCIM
 
 ## Goal
 Export the **active 3D view** so glTF/XKT match what is on screen, and export **IFC** using a Revit IFC setup.
@@ -10,7 +10,7 @@ glTF / XKT:
 - MEP system-type / color-fill colors when those are active
 
 ## Stack
-- Revit 2027 API, C#, **.NET 10** (`net10.0-windows`)
+- Revit **2025 / 2026 / 2027** API, C# (`net8.0-windows` for 2025–2026, `net10.0-windows` for 2027)
 - `IExternalApplication` ribbon tab **MetroCIM**
 - glTF via **SharpGLTF.Toolkit** (NuGet)
 - XKT via **xeokit-convert** (Node.js CLI): glTF → `.xkt`

@@ -1,0 +1,22 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.local.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.local.props')" />
+
+  <PropertyGroup>
+    <RevitVersion Condition="'$(RevitVersion)' == '' and $(Configuration.Contains('2025'))">2025</RevitVersion>
+    <RevitVersion Condition="'$(RevitVersion)' == '' and $(Configuration.Contains('2026'))">2026</RevitVersion>
+    <RevitVersion Condition="'$(RevitVersion)' == '' and $(Configuration.Contains('2027'))">2027</RevitVersion>
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2027</RevitVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RevitVersion)' == '2025' or '$(RevitVersion)' == '2026'">
+    <TargetFramework>net8.0-windows</TargetFramework>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(RevitVersion)' == '2027'">
+    <TargetFramework>net10.0-windows</TargetFramework>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);REVIT$(RevitVersion)</DefineConstants>
+  </PropertyGroup>
+</Project>

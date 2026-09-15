@@ -1,6 +1,6 @@
 # MetroCIM
 
-Revit 2027 add-in that exports the **active 3D view** to **glTF**, **XKT**, and **IFC**, using the colors you see on screen (view filters, graphic overrides, and MEP system types).
+Revit **2025 / 2026 / 2027** add-in that exports the **active 3D view** to **glTF**, **XKT**, and **IFC**, using the colors you see on screen (view filters, graphic overrides, and MEP system types).
 
 ![Mechanical room export with piping system colors](docs/images/sample-mechanical-room.png)
 
@@ -20,25 +20,27 @@ glTF and XKT include only what is visible in the current 3D view. IFC uses the s
 
 ## Requirements
 
-- Autodesk **Revit 2027**
+- Autodesk **Revit 2025**, **2026**, or **2027**
 - For **Export XKT** only:
   - [Node.js](https://nodejs.org/)
   - `npm install -g @xeokit/xeokit-convert`
 
 ## Install
 
-Build and copy the add-in into your Revit 2027 Addins folder:
+Build and copy the add-in into the Addins folder for your Revit year. Default is **2027**:
 
 ```bat
 dotnet build src/MetroCIM/MetroCIM.csproj -p:DeployAddin=true
+dotnet build src/MetroCIM/MetroCIM.csproj -p:RevitVersion=2026 -p:DeployAddin=true
+dotnet build src/MetroCIM/MetroCIM.csproj -p:RevitVersion=2025 -p:DeployAddin=true
 ```
 
-That writes:
+That writes (example for 2027):
 
 - `%AppData%\Autodesk\Revit\Addins\2027\MetroCIM.addin`
 - `%AppData%\Autodesk\Revit\Addins\2027\MetroCIM\MetroCIM.dll`
 
-Fully quit Revit before installing (it locks the DLL). Then start Revit and use the **MetroCIM** tab.
+Use `2025` or `2026` in that path when you pass `-p:RevitVersion=2025` or `2026`. Fully quit Revit before installing (it locks the DLL). Then start Revit and use the **MetroCIM** tab.
 
 ## Use
 
@@ -52,10 +54,16 @@ If Node.js or xeokit-convert is missing, XKT export stops and shows the install 
 
 ```bat
 dotnet build src/MetroCIM/MetroCIM.csproj
+dotnet build src/MetroCIM/MetroCIM.csproj -p:RevitVersion=2026
+dotnet build src/MetroCIM/MetroCIM.csproj -p:RevitVersion=2025
 dotnet test src/MetroCIM.Tests/MetroCIM.Tests.csproj
 ```
 
-The project targets `net10.0-windows` (x64) with the Revit 2027 API.
+| Revit | Target framework | API packages |
+| --- | --- | --- |
+| 2027 (default) | `net10.0-windows` | Nice3point Revit `2027.*` |
+| 2026 | `net8.0-windows` | Nice3point Revit `2026.*` |
+| 2025 | `net8.0-windows` | Nice3point Revit `2025.*` |
 
 ## Repository
 

@@ -11,8 +11,8 @@ public readonly record struct ResolvedAppearance(byte R, byte G, byte B, byte A)
 
     public static ResolvedAppearance FromRgb(byte r, byte g, byte b, int transparencyPercent = 0)
     {
-        int t = Math.Clamp(transparencyPercent, 0, 100);
-        byte a = (byte)Math.Clamp((int)Math.Round(255d * (100 - t) / 100d), 0, 255);
+        int t = transparencyPercent < 0 ? 0 : transparencyPercent > 100 ? 100 : transparencyPercent;
+        byte a = (byte)Math.Max(0, Math.Min(255, (int)Math.Round(255d * (100 - t) / 100d)));
         return new ResolvedAppearance(r, g, b, a);
     }
 }

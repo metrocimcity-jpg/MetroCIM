@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\$(NavisworksVersion)\$(Configuration)\</OutputPath>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <AssemblyName>MetroCIM.Navisworks</AssemblyName>
+    <RootNamespace>MetroCIM.Navisworks</RootNamespace>
+    <Product>MetroCIM</Product>
+    <Title>MetroCIM for Navisworks</Title>
+    <DeployAddin Condition="'$(DeployAddin)' == ''">false</DeployAddin>
+    <NavisworksBundleDir>$(AppData)\Autodesk\ApplicationPlugins\MetroCIM.Navisworks.bundle\</NavisworksBundleDir>
+    <NavisworksApiVersion Condition="'$(NavisworksVersion)' == '2025'">2025.0.0</NavisworksApiVersion>
+    <NavisworksApiVersion Condition="'$(NavisworksVersion)' == '2026'">2026.0.1</NavisworksApiVersion>
+    <NavisworksApiVersion Condition="'$(NavisworksVersion)' == '2027'">2027.0.0</NavisworksApiVersion>
+    <NavisworksApiVersion Condition="'$(NavisworksApiVersion)' == ''">2027.0.0</NavisworksApiVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Speckle.Navisworks.API" Version="$(NavisworksApiVersion)" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="PolySharp" Version="1.*" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MetroCIM.Core\MetroCIM.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="PackageContents.xml" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Ribbon\MetroCIMRibbon.xaml" />
+    <None Include="Ribbon\MetroCIMRibbon.xaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="DeployAddin" AfterTargets="Build" Condition="'$(DeployAddin)' == 'true'">
+    <MakeDir Directories="$(NavisworksBundleDir)Contents\$(NavisworksVersion)\" />
+    <ItemGroup>
+      <DeployFiles Include="$(OutputPath)*.dll" />
+      <DeployFiles Include="$(OutputPath)*.pdb" />
+      <DeployFiles Include="$(OutputPath)*.xaml" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(NavisworksBundleDir)Contents\$(NavisworksVersion)\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\PackageContents.xml" DestinationFolder="$(NavisworksBundleDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

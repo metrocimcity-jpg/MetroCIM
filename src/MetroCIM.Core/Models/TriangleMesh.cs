@@ -4,9 +4,9 @@ namespace MetroCIM.Models;
 
 public sealed class TriangleMesh
 {
-    public List<Vector3> Positions { get; } = [];
-    public List<Vector3> Normals { get; } = [];
-    public List<int> Indices { get; } = [];
+    public List<Vector3> Positions { get; } = new();
+    public List<Vector3> Normals { get; } = new();
+    public List<int> Indices { get; } = new();
 
     public bool IsEmpty => Indices.Count < 3;
 

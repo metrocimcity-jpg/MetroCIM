@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MetroCIM</RootNamespace>
+    <AssemblyName>MetroCIM.Core</AssemblyName>
+    <Product>MetroCIM</Product>
+    <Description>Host-free MetroCIM mesh and export writers shared by Revit and Navisworks.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 1.0.0 keeps System.Text.Json compatible with net48 Navisworks hosts. -->
+    <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.0" />
+    <PackageReference Include="PolySharp" Version="1.*" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

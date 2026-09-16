@@ -5,8 +5,16 @@ namespace MetroCIM.Models;
 
 public sealed class ElementGeometry
 {
-    public required string Id { get; init; }
-    public required Element Element { get; init; }
-    public required ResolvedAppearance Appearance { get; init; }
-    public required TriangleMesh Mesh { get; init; }
+    public ElementGeometry(string id, Element element, ResolvedAppearance appearance, TriangleMesh mesh)
+    {
+        Id = id;
+        Element = element;
+        Appearance = appearance;
+        Mesh = mesh;
+    }
+
+    public string Id { get; }
+    public Element Element { get; }
+    public ResolvedAppearance Appearance { get; }
+    public TriangleMesh Mesh { get; }
 }

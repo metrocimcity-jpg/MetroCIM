@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Navisworks loads ribbon commands from CommandHandlerPlugin attributes.
+  This layout file is referenced by [RibbonLayout] and kept next to the DLL.
+-->
+<RibbonControl xmlns="clr-namespace:Autodesk.Windows;assembly=AdWindows"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <RibbonTab Id="ID_Tab_MetroCIM" Title="MetroCIM">
+    <RibbonPanel Title="Export">
+      <RibbonPanelSource Title="Export">
+        <RibbonButton Id="ID_Button_ExportGltf" Text="Export glTF" ShowText="True" Size="Large" />
+        <RibbonButton Id="ID_Button_ExportXkt" Text="Export XKT" ShowText="True" Size="Large" />
+        <RibbonButton Id="ID_Button_ExportIfc" Text="Export IFC" ShowText="True" Size="Large" />
+      </RibbonPanelSource>
+    </RibbonPanel>
+  </RibbonTab>
+</RibbonControl>

@@ -1,4 +1,6 @@
 <Solution>
+  <Project Path="src/MetroCIM.Core/MetroCIM.Core.csproj" />
   <Project Path="src/MetroCIM/MetroCIM.csproj" />
+  <Project Path="src/MetroCIM.Navisworks/MetroCIM.Navisworks.csproj" />
   <Project Path="src/MetroCIM.Tests/MetroCIM.Tests.csproj" />
 </Solution>

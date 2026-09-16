@@ -1,33 +1,43 @@
 # MetroCIM
 
-Revit **2025 / 2026 / 2027** add-in that exports the **active 3D view** to **glTF**, **XKT**, and **IFC**, using the colors you see on screen (view filters, graphic overrides, and MEP system types).
+Export **visible 3D geometry** to **glTF**, **XKT**, and **IFC** with the colors you see on screen.
+
+Hosts:
+
+- **Autodesk Revit 2025 / 2026 / 2027**
+- **Autodesk Navisworks Manage / Simulate 2025 / 2026 / 2027**
 
 ![Mechanical room export with piping system colors](docs/images/sample-mechanical-room.png)
 
-*Sample export of a mechanical room. Pipes, fittings, and accessories keep the same system colors as the Revit 3D view.*
+*Sample export of a mechanical room. Pipes, fittings, and accessories keep system colors.*
 
 ## What it exports
 
-The **MetroCIM** ribbon tab has an **Export** panel with three commands:
+Both hosts use a **MetroCIM** ribbon tab with an **Export** panel:
 
 | Command | Output |
 | --- | --- |
-| **Export glTF** | `.glb` / `.gltf` from the active 3D view |
-| **Export XKT** | `.xkt` for xeokit (writes a sibling `.glb` and `metadata.json`, then converts) |
-| **Export IFC** | `.ifc` using a Revit IFC setup (in-session, built-in, or saved in the model) |
+| **Export glTF** | `.glb` / `.gltf` |
+| **Export XKT** | `.xkt` (sibling `.glb` + `metadata.json`, then xeokit-convert) |
+| **Export IFC** | `.ifc` |
 
-glTF and XKT include only what is visible in the current 3D view. IFC uses the selected Revit IFC setup; colors are applied in this order: **view filter**, **graphic override**, **MEP system type / color fill**, then the **element material**.
+### Revit
+- glTF / XKT: active **3D view** visibility and colors (filters, overrides, MEP system types)
+- IFC: selected Revit IFC setup, then MetroCIM color apply + STEP patch
+
+### Navisworks
+- glTF / XKT / IFC: all **visible** model items (not hidden)
+- Colors: fragment appearance, then color-like properties
+- IFC: MetroCIM IFC4 mesh writer (`IfcTriangulatedFaceSet`) — Navisworks has no Revit IFC setup picker
 
 ## Requirements
 
-- Autodesk **Revit 2025**, **2026**, or **2027**
+- Revit **or** Navisworks Manage/Simulate for the matching year
 - For **Export XKT** only:
   - [Node.js](https://nodejs.org/)
   - `npm install -g @xeokit/xeokit-convert`
 
-## Install
-
-Build and copy the add-in into the Addins folder for your Revit year. Default is **2027**:
+## Install — Revit
 
 ```bat
 dotnet build src/MetroCIM/MetroCIM.csproj -p:DeployAddin=true
@@ -35,35 +45,46 @@ dotnet build src/MetroCIM/MetroCIM.csproj -p:RevitVersion=2026 -p:DeployAddin=tr
 dotnet build src/MetroCIM/MetroCIM.csproj -p:RevitVersion=2025 -p:DeployAddin=true
 ```
 
-That writes (example for 2027):
+Writes (example 2027):
 
 - `%AppData%\Autodesk\Revit\Addins\2027\MetroCIM.addin`
 - `%AppData%\Autodesk\Revit\Addins\2027\MetroCIM\MetroCIM.dll`
 
-Use `2025` or `2026` in that path when you pass `-p:RevitVersion=2025` or `2026`. Fully quit Revit before installing (it locks the DLL). Then start Revit and use the **MetroCIM** tab.
+Quit Revit before installing.
 
-## Use
+## Install — Navisworks
 
-1. Open a project and activate a **3D view** (glTF / XKT require this; IFC can use the active view).
-2. Choose **Export glTF**, **Export XKT**, or **Export IFC**.
-3. For IFC, pick a Revit IFC setup, then choose the output path.
+```bat
+dotnet build src/MetroCIM.Navisworks/MetroCIM.Navisworks.csproj -p:DeployAddin=true
+dotnet build src/MetroCIM.Navisworks/MetroCIM.Navisworks.csproj -p:NavisworksVersion=2026 -p:DeployAddin=true
+dotnet build src/MetroCIM.Navisworks/MetroCIM.Navisworks.csproj -p:NavisworksVersion=2025 -p:DeployAddin=true
+```
 
-If Node.js or xeokit-convert is missing, XKT export stops and shows the install command above.
+Writes:
+
+```text
+%AppData%\Autodesk\ApplicationPlugins\MetroCIM.Navisworks.bundle\
+  PackageContents.xml
+  Contents\2025|2026|2027\MetroCIM.Navisworks.dll
+```
+
+Quit Navisworks before installing, then restart and use the **MetroCIM** tab.
 
 ## Build
 
 ```bat
+dotnet build src/MetroCIM.Core/MetroCIM.Core.csproj
 dotnet build src/MetroCIM/MetroCIM.csproj
-dotnet build src/MetroCIM/MetroCIM.csproj -p:RevitVersion=2026
-dotnet build src/MetroCIM/MetroCIM.csproj -p:RevitVersion=2025
+dotnet build src/MetroCIM.Navisworks/MetroCIM.Navisworks.csproj
 dotnet test src/MetroCIM.Tests/MetroCIM.Tests.csproj
 ```
 
-| Revit | Target framework | API packages |
+| Host | TFM | API |
 | --- | --- | --- |
-| 2027 (default) | `net10.0-windows` | Nice3point Revit `2027.*` |
-| 2026 | `net8.0-windows` | Nice3point Revit `2026.*` |
-| 2025 | `net8.0-windows` | Nice3point Revit `2025.*` |
+| Shared Core | `netstandard2.0` | SharpGLTF + writers |
+| Revit 2027 | `net10.0-windows` | Nice3point `2027.*` |
+| Revit 2025/2026 | `net8.0-windows` | Nice3point year packages |
+| Navisworks 2025–2027 | `net48` | Speckle.Navisworks.API |
 
 ## Repository
 

@@ -24,7 +24,10 @@
   <ItemGroup>
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitVersion).*" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitVersion).*" ExcludeAssets="runtime" PrivateAssets="all" />
-    <PackageReference Include="SharpGLTF.Toolkit" Version="1.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MetroCIM.Core\MetroCIM.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

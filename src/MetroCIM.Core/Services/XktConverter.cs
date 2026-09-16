@@ -117,7 +117,7 @@ public sealed class XktConverter
         string? npmRoot = TryReadProcessOutput("npm.cmd", "root -g") ?? TryReadProcessOutput("npm", "root -g");
         if (!string.IsNullOrWhiteSpace(npmRoot))
         {
-            string candidate = Path.Combine(npmRoot.Trim(), "@xeokit", "xeokit-convert", "convert2xkt.js");
+            string candidate = Path.Combine(npmRoot!.Trim(), "@xeokit", "xeokit-convert", "convert2xkt.js");
             if (File.Exists(candidate))
                 return candidate;
         }
@@ -197,8 +197,19 @@ public enum XktToolStatus
     MissingXeokitConvert
 }
 
-public sealed record XktConversionResult(bool Success, string? Path, string? Error)
+public sealed class XktConversionResult
 {
+    public XktConversionResult(bool success, string? path, string? error)
+    {
+        Success = success;
+        Path = path;
+        Error = error;
+    }
+
+    public bool Success { get; }
+    public string? Path { get; }
+    public string? Error { get; }
+
     public static XktConversionResult Succeeded(string path) => new(true, path, null);
     public static XktConversionResult Failed(string error) => new(false, null, error);
 }

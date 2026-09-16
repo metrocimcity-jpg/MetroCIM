@@ -2,21 +2,29 @@
   <Import Project="$(MSBuildThisFileDirectory)Directory.Build.local.props"
           Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.local.props')" />
 
-  <PropertyGroup>
+  <!-- Revit add-in + its tests -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'MetroCIM' or '$(MSBuildProjectName)' == 'MetroCIM.Tests'">
     <RevitVersion Condition="'$(RevitVersion)' == '' and $(Configuration.Contains('2025'))">2025</RevitVersion>
     <RevitVersion Condition="'$(RevitVersion)' == '' and $(Configuration.Contains('2026'))">2026</RevitVersion>
     <RevitVersion Condition="'$(RevitVersion)' == '' and $(Configuration.Contains('2027'))">2027</RevitVersion>
     <RevitVersion Condition="'$(RevitVersion)' == ''">2027</RevitVersion>
+    <DefineConstants>$(DefineConstants);REVIT$(RevitVersion)</DefineConstants>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(RevitVersion)' == '2025' or '$(RevitVersion)' == '2026'">
+  <PropertyGroup Condition="('$(MSBuildProjectName)' == 'MetroCIM' or '$(MSBuildProjectName)' == 'MetroCIM.Tests') and ('$(RevitVersion)' == '2025' or '$(RevitVersion)' == '2026')">
     <TargetFramework>net8.0-windows</TargetFramework>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(RevitVersion)' == '2027'">
+  <PropertyGroup Condition="('$(MSBuildProjectName)' == 'MetroCIM' or '$(MSBuildProjectName)' == 'MetroCIM.Tests') and '$(RevitVersion)' == '2027'">
     <TargetFramework>net10.0-windows</TargetFramework>
   </PropertyGroup>
 
-  <PropertyGroup>
-    <DefineConstants>$(DefineConstants);REVIT$(RevitVersion)</DefineConstants>
+  <!-- Navisworks add-in -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'MetroCIM.Navisworks'">
+    <NavisworksVersion Condition="'$(NavisworksVersion)' == '' and $(Configuration.Contains('2025'))">2025</NavisworksVersion>
+    <NavisworksVersion Condition="'$(NavisworksVersion)' == '' and $(Configuration.Contains('2026'))">2026</NavisworksVersion>
+    <NavisworksVersion Condition="'$(NavisworksVersion)' == '' and $(Configuration.Contains('2027'))">2027</NavisworksVersion>
+    <NavisworksVersion Condition="'$(NavisworksVersion)' == ''">2027</NavisworksVersion>
+    <TargetFramework>net48</TargetFramework>
+    <DefineConstants>$(DefineConstants);NAVISWORKS$(NavisworksVersion)</DefineConstants>
   </PropertyGroup>
 </Project>

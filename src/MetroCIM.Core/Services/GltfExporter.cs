@@ -12,16 +12,16 @@ public sealed class GltfExporter
     public void Export(string path, IReadOnlyDictionary<ResolvedAppearance, TriangleMesh> meshesByColor)
     {
         var writer = new GltfSceneAccumulator();
-        foreach ((ResolvedAppearance appearance, TriangleMesh mesh) in meshesByColor)
-            writer.AddBatched(appearance, mesh);
+        foreach (KeyValuePair<ResolvedAppearance, TriangleMesh> pair in meshesByColor)
+            writer.AddBatched(pair.Key, pair.Value);
 
         writer.Save(path);
     }
 
-    public void ExportByElement(string path, IReadOnlyList<ElementGeometry> items)
+    public void ExportByElement(string path, IReadOnlyList<ColoredMesh> items)
     {
         var writer = new GltfSceneAccumulator();
-        foreach (ElementGeometry item in items)
+        foreach (ColoredMesh item in items)
             writer.Add(item.Id, item.Appearance, item.Mesh);
         writer.Save(path);
     }
@@ -31,8 +31,8 @@ public sealed class GltfSceneAccumulator
 {
     private const int MaxTrianglesPerBatch = 8000;
     private readonly SceneBuilder _scene = new();
-    private readonly Dictionary<ResolvedAppearance, MaterialBuilder> _materials = [];
-    private readonly Dictionary<ResolvedAppearance, List<BatchMesh>> _batched = [];
+    private readonly Dictionary<ResolvedAppearance, MaterialBuilder> _materials = new();
+    private readonly Dictionary<ResolvedAppearance, List<BatchMesh>> _batched = new();
     private int _materialIndex;
     private int _count;
 
@@ -56,18 +56,18 @@ public sealed class GltfSceneAccumulator
 
         if (!_batched.TryGetValue(appearance, out List<BatchMesh>? batches))
         {
-            batches = [];
+            batches = new List<BatchMesh>();
             _batched[appearance] = batches;
         }
 
         int incoming = mesh.Indices.Count / 3;
-        if (batches.Count == 0 || batches[^1].Triangles + incoming > MaxTrianglesPerBatch)
+        if (batches.Count == 0 || batches[batches.Count - 1].Triangles + incoming > MaxTrianglesPerBatch)
         {
             string name = $"mesh_{_count:D4}";
             batches.Add(new BatchMesh(new MeshBuilder<VertexPositionNormal>(name)));
         }
 
-        BatchMesh batch = batches[^1];
+        BatchMesh batch = batches[batches.Count - 1];
         AddTriangles(batch.Builder, GetMaterial(appearance), mesh);
         batch.Triangles += incoming;
         _count++;
@@ -76,7 +76,7 @@ public sealed class GltfSceneAccumulator
     public void Save(string path)
     {
         if (_count == 0)
-            throw new InvalidOperationException("No triangulated geometry was produced for the active view.");
+            throw new InvalidOperationException("No triangulated geometry was produced for export.");
 
         int index = 0;
         foreach (List<BatchMesh> batches in _batched.Values)
@@ -85,7 +85,10 @@ public sealed class GltfSceneAccumulator
                 _scene.AddRigidMesh(batch.Builder, new NodeBuilder($"mesh_{index++:D4}"));
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        string? directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+
         string extension = Path.GetExtension(path);
         if (extension.Equals(".gltf", StringComparison.OrdinalIgnoreCase))
             _scene.ToGltf2().SaveGLTF(path);
@@ -93,9 +96,10 @@ public sealed class GltfSceneAccumulator
             _scene.ToGltf2().SaveGLB(path);
     }
 
-    private sealed class BatchMesh(MeshBuilder<VertexPositionNormal> builder)
+    private sealed class BatchMesh
     {
-        public MeshBuilder<VertexPositionNormal> Builder { get; } = builder;
+        public BatchMesh(MeshBuilder<VertexPositionNormal> builder) => Builder = builder;
+        public MeshBuilder<VertexPositionNormal> Builder { get; }
         public int Triangles { get; set; }
     }
 

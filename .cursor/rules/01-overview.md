@@ -1,35 +1,27 @@
-# Revit 2025 / 2026 / 2027 Add-in: MetroCIM
+# MetroCIM — Revit + Navisworks
 
 ## Goal
-Export the **active 3D view** so glTF/XKT match what is on screen, and export **IFC** using a Revit IFC setup.
+Export **visible 3D geometry** to **glTF**, **XKT**, and **IFC** with on-screen colors.
 
-glTF / XKT:
-- Only currently visible elements (view visibility, temporary hide/isolate, category/workset)
-- On-screen colors (view filters, graphic overrides, MEP system type / color fill)
-
-IFC color (first match wins, only on that element):
-1. View filter that actually includes this element (its category and rules)
-2. Graphic override on this element
-3. MEP system type / color fill
-4. Material of the element
+## Hosts
+- **Revit 2025 / 2026 / 2027** — active 3D view; IFC via Revit IFC setups + STEP color patch
+- **Navisworks Manage/Simulate 2025 / 2026 / 2027** — visible model items; IFC via MetroCIM IFC4 mesh writer
 
 ## Stack
-- Revit **2025 / 2026 / 2027** API, C# (`net8.0-windows` for 2025–2026, `net10.0-windows` for 2027)
-- `IExternalApplication` ribbon tab **MetroCIM**
-- glTF via **SharpGLTF.Toolkit** (NuGet)
-- XKT via **xeokit-convert** (Node.js CLI): glTF → `.xkt`
-  - Install: `npm install -g @xeokit/xeokit-convert`
-  - The XKT command calls this CLI with `Process.Start`
-  - If Node.js or xeokit-convert is missing, XKT export stops and shows the install hint
-- IFC via Revit's `Document.Export` and the official IFC export setups (in-session, built-in, and saved in the model)
+- Shared `MetroCIM.Core` (`netstandard2.0`): `ResolvedAppearance`, `TriangleMesh`, `GltfSceneAccumulator`, `XktConverter`, `IfcMeshExporter`, `IfcGuid`
+- Revit: Nice3point Revit API (`net8` / `net10`), `.addin` deploy
+- Navisworks: Speckle.Navisworks.API (`net48`), ApplicationPlugins `.bundle`
+- glTF via **SharpGLTF.Toolkit**
+- XKT via **xeokit-convert** (`npm install -g @xeokit/xeokit-convert`)
 
-## Ribbon
+## Ribbon (both hosts)
 Tab **MetroCIM**, panel **Export**:
-- **Export glTF** — writes `.glb` or `.gltf` only
-- **Export XKT** — writes intermediate `.glb` and `metadata.json` next to the chosen `.xkt`, then converts
-- **Export IFC** — writes `.ifc` using the selected Revit IFC setup
+- **Export glTF**
+- **Export XKT**
+- **Export IFC**
 
 ## Non-goals
 - No import
 - No native C# XKT writer
-- No 2D views or sheets for glTF/XKT
+- No Revit IFC setup picker inside Navisworks
+- No Navisworks Freedom/Viewer plugins

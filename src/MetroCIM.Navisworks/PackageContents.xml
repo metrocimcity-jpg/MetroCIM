@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage SchemaVersion="1.0"
+                    AutodeskProduct="Navisworks"
+                    Name="MetroCIM"
+                    Description="Export visible Navisworks geometry to glTF, XKT, and IFC with on-screen colors."
+                    AppVersion="1.0.0"
+                    ProductType="Application"
+                    SupportedLocales="Enu">
+  <CompanyDetails Name="Metropolitan CIM" Url="https://github.com/metrocimcity-jpg/MetroCIM" Email="" />
+
+  <Components Description="Navisworks 2025">
+    <RuntimeRequirements OS="Win64" Platform="NAVMAN|NAVSIM" SeriesMin="Nw22" SeriesMax="Nw22" />
+    <ComponentEntry AppName="MetroCIM"
+                    AppType="ManagedPlugin"
+                    ModuleName="./Contents/2025/MetroCIM.Navisworks.dll"
+                    AppDescription="MetroCIM for Navisworks 2025" />
+  </Components>
+
+  <Components Description="Navisworks 2026">
+    <RuntimeRequirements OS="Win64" Platform="NAVMAN|NAVSIM" SeriesMin="Nw23" SeriesMax="Nw23" />
+    <ComponentEntry AppName="MetroCIM"
+                    AppType="ManagedPlugin"
+                    ModuleName="./Contents/2026/MetroCIM.Navisworks.dll"
+                    AppDescription="MetroCIM for Navisworks 2026" />
+  </Components>
+
+  <Components Description="Navisworks 2027">
+    <RuntimeRequirements OS="Win64" Platform="NAVMAN|NAVSIM" SeriesMin="Nw24" SeriesMax="Nw24" />
+    <ComponentEntry AppName="MetroCIM"
+                    AppType="ManagedPlugin"
+                    ModuleName="./Contents/2027/MetroCIM.Navisworks.dll"
+                    AppDescription="MetroCIM for Navisworks 2027" />
+  </Components>
+</ApplicationPackage>

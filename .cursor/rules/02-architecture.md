@@ -1,6 +1,6 @@
 # Architecture
 
-Keep types small: `VisibilityService`, `ColorResolver`, `MepSystemTypeColor`, `GeometryBuilder`, `GltfExporter`, `XktConverter`, `ViewExporter`, `MetadataExporter`, `IfcExporter`, `IfcAppearanceApplier`, `IfcColorPatcher`. Do not merge XKT conversion into the glTF writer.
+Keep types small: `VisibilityService`, `ColorResolver`, `MepSystemTypeColor`, `IfcColorPriority`, `GeometryBuilder`, `GltfExporter`, `XktConverter`, `ViewExporter`, `MetadataExporter`, `IfcExporter`, `IfcAppearanceApplier`, `IfcColorPatcher`, `IfcPortGeometryStripper`. Do not merge XKT conversion into the glTF writer.
 
 ## Commands
 - `ExportGltfCommand` — validate `View3D`, pick `.glb`/`.gltf`, build meshes, save glTF
@@ -27,7 +27,14 @@ Use **surface / fill** colors, never projection-line color, as mesh albedo.
 5. Never pipe segment material, pipe type material, `RBS_PIPE_MATERIAL_PARAM`, or `element.GetMaterialIds()` on pipes
 6. Other categories: non-black element materials, else a neutral default
 
-`PipeInsulation` / other `InsulationLiningBase` elements inherit appearance from `HostElementId` so insulated pipes match system-type colors. Pipe fittings and accessories use the connected pipe’s system type when they have no system parameter of their own. Pipe fittings and accessories use the connected pipe’s system type when they have no system parameter of their own.
+`PipeInsulation` / other `InsulationLiningBase` elements inherit appearance from `HostElementId` so insulated pipes match system-type colors. Pipe fittings and accessories use the connected pipe’s system type when they have no system parameter of their own. If an element has mixed MEP system classifications or system types, ignore electrical (power, data, fire alarm, cable tray/conduit, and similar) and keep the piping or HVAC system type.
+
+## Color (IFC, first match wins)
+1. View filter **only if this element passes that filter** (same category and rules as the view). Do not copy a host, insulation, or nested-family filter onto other elements. Surface/cut override colors only — not projection-line color.
+2. Color fill / `MepSystemTypeColor` for elements that had no filter color. Mechanical equipment uses its own system-type parameter only; it does not inherit color from connected ducts or pipes.
+3. Material of this element
+
+Never write a filter color onto `MEPSystemType.MaterialId` — that would recolor every element on that system. Resolve every visible element's color before pushing materials.
 
 ## Geometry and glTF
 - `element.get_Geometry(new Options { View = view })`
@@ -44,4 +51,4 @@ node --max-old-space-size=16384 convert2xkt.js -s "<glb>" -o "<xkt>" -m "<metada
 Detect the CLI before conversion. Missing tool message: `npm install -g @xeokit/xeokit-convert`.
 
 ## IFC
-Load Revit's IFC setups from `Autodesk.IFC.Export.UI` or `Revit.IFC.Export` (in-session, built-in, and document-saved when those can be read). Missing saved setups must not block the built-in list. Before `document.Export`, apply the same `ColorResolver` colors used by glTF (system-type material / fill, not pipe physical material). After export, patch `IfcStyledItem` / `IfcColourRgb` by IFC GlobalId (22-char) or Revit UniqueId, never by Mark/ElementId. Shared fitting `IfcMappedItem` geometry is cloned per color so elbows on different systems do not keep the family metal style. Snapshot the IFC, then roll back temporary materials. Export with the file name **without** extension, `ActiveViewId` as the numeric view id, tessellation **0.8**, and retry without `FilterViewId` if the file is empty.
+Load Revit's IFC setups from `Autodesk.IFC.Export.UI` or `Revit.IFC.Export` (in-session, built-in, and document-saved when those can be read). Missing saved setups must not block the built-in list. Before `document.Export`, apply `ColorResolver` in **IFC** mode: view filter, then MEP system type / color fill, then the element's material (including pipe materials). Graphic overrides are not used for IFC. After export, patch `IfcStyledItem` / `IfcColourRgb` by IFC GlobalId (22-char) or Revit UniqueId, never by Mark/ElementId. Shared fitting `IfcMappedItem` geometry is cloned per color so elbows on different systems do not keep the family metal style. Strip `IfcDistributionPort` entities entirely after export (viewers draw flow-direction cones from the port even when Representation is empty). Also drop `IfcRelNests` / `IfcRelConnectsPort*` that only exist for those ports. Snapshot the IFC, then roll back temporary materials. Export with the file name **without** extension, `ActiveViewId` as the numeric view id, tessellation **0.8**, and retry without `FilterViewId` if the file is empty.

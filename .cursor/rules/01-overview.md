@@ -5,9 +5,12 @@ Export the **active 3D view** so glTF/XKT match what is on screen, and export **
 
 glTF / XKT:
 - Only currently visible elements (view visibility, temporary hide/isolate, category/workset)
-- View filter colors, patterns, and transparency
-- Element and category graphic overrides
-- MEP system-type / color-fill colors when those are active
+- On-screen colors (view filters, graphic overrides, MEP system type / color fill)
+
+IFC color (first match wins, only on that element):
+1. View filter that actually includes this element (its category and rules)
+2. MEP system type / color fill, for elements with no filter color
+3. Material of the element
 
 ## Stack
 - Revit **2025 / 2026 / 2027** API, C# (`net8.0-windows` for 2025–2026, `net10.0-windows` for 2027)

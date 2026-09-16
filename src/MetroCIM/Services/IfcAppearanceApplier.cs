@@ -1,18 +1,20 @@
 using Autodesk.Revit.DB;
-using Autodesk.Revit.DB.Plumbing;
 using MetroCIM.Models;
 using RevitColor = Autodesk.Revit.DB.Color;
 
 namespace MetroCIM.Services;
 
 /// <summary>
-/// Pushes <see cref="ColorResolver"/> colors onto elements for the duration of an IFC export.
-/// Revit's IFC writer uses physical materials; this makes it use the same system-type / view colors as glTF.
+/// Pushes IFC colors onto elements for the duration of an export.
+/// Priority: view filter on this element only, then system type, then this element's material.
 /// </summary>
 public sealed class IfcAppearanceApplier
 {
     public static string MaterialName(ResolvedAppearance appearance) =>
         $"MetroCIM {appearance.R:D3}-{appearance.G:D3}-{appearance.B:D3}-{appearance.A:D3}";
+
+    public static bool IsTemporaryMaterialName(string? name) =>
+        name is not null && name.StartsWith("MetroCIM ", StringComparison.Ordinal);
 
     public static Dictionary<string, ResolvedAppearance> Apply(Document document, View view)
     {
@@ -21,27 +23,29 @@ public sealed class IfcAppearanceApplier
             return colorsByIfcGuid;
 
         var visibility = new VisibilityService();
-        var colors = new ColorResolver();
+        var colors = new ColorResolver(ColorResolveMode.Ifc);
         colors.Bind(view3D);
 
         var materials = new Dictionary<(byte R, byte G, byte B, byte A), ElementId>();
         var materialsByName = IndexMaterials(document);
         ElementId? solidFillId = FindSolidFill(document);
-        var systemMaterials = new Dictionary<ElementId, ElementId>();
-        var systems = new MepSystemTypeColor();
 
-        bool changed = false;
+        var resolved = new List<(Element Element, ResolvedAppearance Appearance)>();
         foreach (Element element in visibility.GetVisibleElements(document, view3D))
         {
             ResolvedAppearance appearance = colors.Resolve(element, view3D);
-            IndexElementAndNested(colorsByIfcGuid, element, appearance);
+            resolved.Add((element, appearance));
+            IndexGuids(colorsByIfcGuid, element, appearance);
+        }
 
+        bool changed = false;
+        foreach ((Element element, ResolvedAppearance appearance) in resolved)
+        {
             ElementId materialId = GetOrCreateMaterial(document, materials, materialsByName, appearance);
             changed |= TrySetMaterialParameter(element, materialId);
             changed |= TrySetIfcMaterialOverride(element, MaterialName(appearance));
             changed |= TrySetOverrides(view3D, element, appearance, solidFillId);
             changed |= PaintFaces(document, element, materialId);
-            changed |= TrySetSystemTypeMaterial(systems, element, materialId, systemMaterials);
         }
 
         if (changed)
@@ -59,10 +63,10 @@ public sealed class IfcAppearanceApplier
             return;
 
         var visibility = new VisibilityService();
-        var colors = new ColorResolver();
+        var colors = new ColorResolver(ColorResolveMode.Ifc);
         colors.Bind(view3D);
         foreach (Element element in visibility.GetVisibleElements(document, view3D))
-            IndexElementAndNested(colorsByIfcGuid, element, colors.Resolve(element, view3D));
+            IndexGuids(colorsByIfcGuid, element, colors.Resolve(element, view3D));
     }
 
     private static Dictionary<string, ElementId> IndexMaterials(Document document)
@@ -127,8 +131,14 @@ public sealed class IfcAppearanceApplier
 
     private static bool TrySetMaterialParameter(Element element, ElementId materialId)
     {
+        if (element is ElementType)
+            return false;
+
         Parameter? parameter = element.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM);
         if (parameter is not { StorageType: StorageType.ElementId, IsReadOnly: false })
+            return false;
+
+        if (parameter.Element is { } owner && owner.Id != element.Id)
             return false;
 
         return parameter.Set(materialId);
@@ -170,62 +180,6 @@ public sealed class IfcAppearanceApplier
             return false;
 
         return parameter.Set(materialName);
-    }
-
-    private static bool TrySetSystemTypeMaterial(
-        MepSystemTypeColor systems,
-        Element element,
-        ElementId materialId,
-        Dictionary<ElementId, ElementId> assigned)
-    {
-        MEPSystemType? systemType = systems.ResolveSystemType(element);
-        if (systemType is null)
-            return false;
-
-        if (assigned.TryGetValue(systemType.Id, out ElementId? existing) && existing == materialId)
-            return false;
-
-        try
-        {
-            if (systemType.MaterialId == materialId)
-            {
-                assigned[systemType.Id] = materialId;
-                return false;
-            }
-
-            systemType.MaterialId = materialId;
-            assigned[systemType.Id] = materialId;
-            return true;
-        }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
-        {
-            return false;
-        }
-    }
-
-    private static void IndexElementAndNested(
-        Dictionary<string, ResolvedAppearance> colorsByIfcGuid,
-        Element element,
-        ResolvedAppearance appearance)
-    {
-        IndexGuids(colorsByIfcGuid, element, appearance);
-        if (element is not FamilyInstance instance)
-            return;
-
-        try
-        {
-            foreach (ElementId nestedId in instance.GetSubComponentIds())
-            {
-                if (nestedId == instance.Id)
-                    continue;
-
-                if (element.Document.GetElement(nestedId) is Element nested)
-                    IndexElementAndNested(colorsByIfcGuid, nested, appearance);
-            }
-        }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
-        {
-        }
     }
 
     private static void IndexGuids(

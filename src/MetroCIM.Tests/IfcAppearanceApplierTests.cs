@@ -21,6 +21,14 @@ public sealed class IfcAppearanceApplierTests
     }
 
     [Fact]
+    public void TemporaryExportMaterialsAreNotUsedAsSystemTypeColor()
+    {
+        Assert.True(IfcAppearanceApplier.IsTemporaryMaterialName("MetroCIM 255-000-000-255"));
+        Assert.False(IfcAppearanceApplier.IsTemporaryMaterialName("Supply Air"));
+        Assert.False(IfcAppearanceApplier.IsTemporaryMaterialName(null));
+    }
+
+    [Fact]
     public void EmptyGuidEncodesToTwentyTwoZeros()
     {
         Assert.Equal("0000000000000000000000", IfcGuid.From(Guid.Empty));

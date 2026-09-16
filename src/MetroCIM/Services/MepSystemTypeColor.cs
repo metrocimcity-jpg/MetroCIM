@@ -1,4 +1,5 @@
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Electrical;
 using MetroCIM.Models;
 using RevitColor = Autodesk.Revit.DB.Color;
 
@@ -92,10 +93,12 @@ public sealed class MepSystemTypeColor
 
                 switch (doc.GetElement(id))
                 {
-                    case MEPSystemType systemType:
+                    case MEPSystemType systemType when !IsElectrical(systemType):
                         return systemType;
                     case MEPSystem system:
-                        return doc.GetElement(system.GetTypeId()) as MEPSystemType;
+                        if (AsNonElectricalSystemType(system, doc) is { } fromSystem)
+                            return fromSystem;
+                        break;
                 }
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException)
@@ -108,8 +111,8 @@ public sealed class MepSystemTypeColor
         {
             try
             {
-                if (curve.MEPSystem is { } system)
-                    return doc.GetElement(system.GetTypeId()) as MEPSystemType;
+                if (AsNonElectricalSystemType(curve.MEPSystem, doc) is { } fromCurve)
+                    return fromCurve;
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException)
             {
@@ -117,7 +120,7 @@ public sealed class MepSystemTypeColor
             }
         }
 
-        if (element is FamilyInstance instance)
+        if (element is FamilyInstance instance && !IsEquipmentFamily(instance))
             return FindSystemTypeFromInstance(instance, doc);
 
         return null;
@@ -130,18 +133,7 @@ public sealed class MepSystemTypeColor
         var visited = new HashSet<ElementId> { instance.Id };
         CollectFromInstance(instance, doc, pipeVotes, otherVotes, visited, 0);
 
-        if (pipeVotes.Count > 0)
-        {
-            return pipeVotes
-                .OrderByDescending(pair => pair.Value.Count)
-                .Select(pair => pair.Value.Type)
-                .FirstOrDefault();
-        }
-
-        return otherVotes
-            .OrderByDescending(pair => pair.Value.Count)
-            .Select(pair => pair.Value.Type)
-            .FirstOrDefault();
+        return PreferNonElectrical(pipeVotes) ?? PreferNonElectrical(otherVotes);
     }
 
     private static void CollectFromInstance(
@@ -170,6 +162,9 @@ public sealed class MepSystemTypeColor
 
         foreach (Connector connector in manager.Connectors.Cast<Connector>())
         {
+            if (IsElectricalDomain(connector))
+                continue;
+
             try
             {
                 TallySystem(connector.MEPSystem, doc, otherVotes);
@@ -228,12 +223,12 @@ public sealed class MepSystemTypeColor
         Document doc,
         Dictionary<ElementId, (MEPSystemType Type, int Count)> votes)
     {
-        if (system is null)
+        if (system is null || IsElectrical(system, doc))
             return;
 
         try
         {
-            if (doc.GetElement(system.GetTypeId()) is not MEPSystemType systemType)
+            if (doc.GetElement(system.GetTypeId()) is not MEPSystemType systemType || IsElectrical(systemType))
                 return;
 
             if (votes.TryGetValue(systemType.Id, out (MEPSystemType Type, int Count) existing))
@@ -276,6 +271,9 @@ public sealed class MepSystemTypeColor
         if (systemType.Document.GetElement(materialId) is not Material material)
             return null;
 
+        if (IfcAppearanceApplier.IsTemporaryMaterialName(material.Name))
+            return null;
+
         if (TryFromRevitColor(material.Color, material.Transparency, out ResolvedAppearance appearance))
             return appearance;
 
@@ -313,5 +311,114 @@ public sealed class MepSystemTypeColor
 
         appearance = ResolvedAppearance.FromRgb(color.Red, color.Green, color.Blue, transparencyPercent);
         return true;
+    }
+
+    private static MEPSystemType? PreferNonElectrical(
+        Dictionary<ElementId, (MEPSystemType Type, int Count)> votes)
+    {
+        return votes.Values
+            .Where(vote => !IsElectrical(vote.Type))
+            .OrderByDescending(vote => vote.Count)
+            .Select(vote => vote.Type)
+            .FirstOrDefault();
+    }
+
+    private static MEPSystemType? AsNonElectricalSystemType(MEPSystem? system, Document doc)
+    {
+        if (system is null || IsElectrical(system, doc))
+            return null;
+
+        return doc.GetElement(system.GetTypeId()) is MEPSystemType systemType && !IsElectrical(systemType)
+            ? systemType
+            : null;
+    }
+
+    private static bool IsElectrical(MEPSystem system, Document doc)
+    {
+        if (system is ElectricalSystem)
+            return true;
+
+        try
+        {
+            return doc.GetElement(system.GetTypeId()) is MEPSystemType systemType && IsElectrical(systemType);
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsElectrical(MEPSystemType systemType)
+    {
+        try
+        {
+            if (IsElectricalClassification(systemType.SystemClassification))
+                return true;
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+        }
+
+        try
+        {
+            return systemType.Category?.BuiltInCategory is
+                BuiltInCategory.OST_ElecDistributionSys or
+                BuiltInCategory.OST_ElectricalCircuit;
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsElectricalDomain(Connector connector)
+    {
+        try
+        {
+            return connector.Domain is Domain.DomainElectrical or Domain.DomainCableTrayConduit;
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool IsElectricalClassification(MEPSystemClassification classification) =>
+        classification is
+            MEPSystemClassification.PowerCircuit or
+            MEPSystemClassification.DataCircuit or
+            MEPSystemClassification.Telephone or
+            MEPSystemClassification.Security or
+            MEPSystemClassification.FireAlarm or
+            MEPSystemClassification.NurseCall or
+            MEPSystemClassification.Controls or
+            MEPSystemClassification.Communication or
+            MEPSystemClassification.PowerBalanced or
+            MEPSystemClassification.PowerUnBalanced or
+            MEPSystemClassification.CableTrayConduit;
+
+    /// <summary>
+    /// Equipment keeps its own system-type parameter if it has one, but does not inherit
+    /// color from connected ducts/pipes. Otherwise an AHU would pick up Supply Air / insulation colors.
+    /// </summary>
+    private static bool IsEquipmentFamily(FamilyInstance instance)
+    {
+        BuiltInCategory category = BuiltInCategory.INVALID;
+        try
+        {
+            if (instance.Category is not null)
+                category = instance.Category.BuiltInCategory;
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            category = BuiltInCategory.INVALID;
+        }
+
+        return category is
+            BuiltInCategory.OST_MechanicalEquipment or
+            BuiltInCategory.OST_ElectricalEquipment or
+            BuiltInCategory.OST_SpecialityEquipment or
+            BuiltInCategory.OST_PlumbingEquipment or
+            BuiltInCategory.OST_MedicalEquipment;
     }
 }

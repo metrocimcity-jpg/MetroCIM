@@ -224,10 +224,11 @@ public sealed class IfcExporter
         try
         {
             IfcColorPatcher.Apply(path, colorsByIfcGuid);
+            IfcPortGeometryStripper.Apply(path);
         }
         catch (Exception ex)
         {
-            return IfcExportOutcome.Failed(setupName, "IFC was written but pipe colors could not be applied.\n" + ex.Message);
+            return IfcExportOutcome.Failed(setupName, "IFC was written but could not be post-processed.\n" + ex.Message);
         }
 
         return IfcExportOutcome.Succeeded(setupName, path);
@@ -241,6 +242,7 @@ public sealed class IfcExporter
         options.AddOption("ActiveViewId", view.Id.Value.ToString());
         options.AddOption("TessellationLevelOfDetail", "0.8");
         options.AddOption("IFCFileType", IfcExportPath.FileTypeOption(path));
+        ExcludeDistributionPorts(options);
 
         try
         {
@@ -259,6 +261,73 @@ public sealed class IfcExporter
     {
         options.FilterViewId = ElementId.InvalidElementId;
         options.AddOption("VisibleElementsOfCurrentView", "false");
+    }
+
+    private static void ExcludeDistributionPorts(IFCExportOptions options)
+    {
+        const string port = "IfcDistributionPort";
+        string existing = GetExportOption(options, "ExcludeFilter");
+        var parts = existing
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+        if (!parts.Exists(part => part.Equals(port, StringComparison.OrdinalIgnoreCase)))
+            parts.Add(port);
+
+        options.AddOption("ExcludeFilter", string.Join(";", parts));
+    }
+
+    private static string GetExportOption(IFCExportOptions options, string name)
+    {
+        Type type = options.GetType();
+        foreach (string methodName in new[] { "GetOption", "GetOptions" })
+        {
+            MethodInfo? method = type.GetMethod(methodName, [typeof(string)]);
+            if (method is null)
+                continue;
+
+            try
+            {
+                if (method.Invoke(options, [name]) is string value)
+                    return value;
+            }
+            catch (TargetInvocationException)
+            {
+            }
+        }
+
+        PropertyInfo? indexer = type.GetProperty("Item", [typeof(string)]);
+        try
+        {
+            if (indexer?.GetValue(options, [name]) is string indexed)
+                return indexed;
+        }
+        catch (TargetInvocationException)
+        {
+        }
+
+        foreach (PropertyInfo property in type.GetProperties())
+        {
+            object? raw;
+            try
+            {
+                raw = property.GetValue(options);
+            }
+            catch (TargetInvocationException)
+            {
+                continue;
+            }
+
+            if (raw is not IDictionary dictionary)
+                continue;
+
+            foreach (DictionaryEntry entry in dictionary)
+            {
+                if (string.Equals(Convert.ToString(entry.Key), name, StringComparison.OrdinalIgnoreCase))
+                    return Convert.ToString(entry.Value) ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
     }
 
     private static void TryDelete(string? path)

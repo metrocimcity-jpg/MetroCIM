@@ -5,12 +5,28 @@ using RevitColor = Autodesk.Revit.DB.Color;
 
 namespace MetroCIM.Services;
 
+public enum ColorResolveMode
+{
+    ViewShaded = 0,
+    Ifc = 1
+}
+
 public sealed class ColorResolver
 {
+    private readonly ColorResolveMode _mode;
     private readonly MepSystemTypeColor _systems = new();
     private readonly Dictionary<ElementId, ResolvedAppearance> _byElement = [];
     private IList<(FilterElement Filter, OverrideGraphicSettings Overrides)> _activeFilters = [];
     private View3D? _boundView;
+
+    public ColorResolver() : this(ColorResolveMode.ViewShaded)
+    {
+    }
+
+    public ColorResolver(ColorResolveMode mode)
+    {
+        _mode = mode;
+    }
 
     public void Bind(View3D view)
     {
@@ -53,7 +69,10 @@ public sealed class ColorResolver
         bool piping = IsPipingElement(source);
         int? transparency = null;
 
-        if (TryGetFilterAppearance(source, view, out ResolvedAppearance filterColor, out int? filterTransparency))
+        if (_mode == ColorResolveMode.Ifc)
+            return ResolveIfc(element, source, view);
+
+        if (TryGetFilterAppearance(element, out ResolvedAppearance filterColor, out int? filterTransparency))
         {
             transparency = filterTransparency ?? transparency;
             return WithTransparency(filterColor, transparency);
@@ -72,6 +91,36 @@ public sealed class ColorResolver
             return WithTransparency(ResolvedAppearance.Default, transparency);
 
         return WithTransparency(GetCategoryDefaultAppearance(source), transparency);
+    }
+
+    private ResolvedAppearance ResolveIfc(Element element, Element source, View3D view)
+    {
+        ResolvedAppearance? filter = null;
+        int? transparency = null;
+        if (TryGetFilterAppearance(element, out ResolvedAppearance filterColor, out int? filterTransparency))
+        {
+            filter = filterColor;
+            transparency = filterTransparency;
+        }
+
+        ResolvedAppearance? systemOrColorFill = null;
+        if (TryGetSystemTypeAppearance(element, view, IsPipingElement(element), out ResolvedAppearance systemColor) ||
+            (source.Id != element.Id &&
+             TryGetSystemTypeAppearance(source, view, IsPipingElement(source), out systemColor)))
+        {
+            systemOrColorFill = systemColor;
+        }
+
+        ResolvedAppearance? elementColor = null;
+        if (TryGetElementMaterialAppearance(element, out ResolvedAppearance materialColor) ||
+            (source.Id != element.Id && TryGetElementMaterialAppearance(source, out materialColor)))
+        {
+            elementColor = materialColor;
+        }
+
+        return WithTransparency(
+            IfcColorPriority.Select(filter, systemOrColorFill, elementColor),
+            transparency);
     }
 
     private static Element GetAppearanceSource(Element element)
@@ -113,7 +162,6 @@ public sealed class ColorResolver
 
     private bool TryGetFilterAppearance(
         Element element,
-        View3D view,
         out ResolvedAppearance appearance,
         out int? transparency)
     {
@@ -126,7 +174,7 @@ public sealed class ColorResolver
             if (!ElementPassesFilter(element, filter))
                 continue;
 
-            if (TryGetSurfaceColor(overrides, out ResolvedAppearance color))
+            if (TryGetFilterOverrideColor(overrides, out ResolvedAppearance color))
                 lastColor = color;
 
             if (TryGetTransparency(overrides, out int t))
@@ -220,7 +268,33 @@ public sealed class ColorResolver
 
     private static ResolvedAppearance GetCategoryDefaultAppearance(Element element)
     {
+        if (TryGetElementMaterialAppearance(element, skipNearBlack: true, out ResolvedAppearance appearance))
+            return appearance;
+
+        return ResolvedAppearance.Default;
+    }
+
+    private static bool TryGetElementMaterialAppearance(Element element, out ResolvedAppearance appearance) =>
+        TryGetElementMaterialAppearance(element, skipNearBlack: false, out appearance);
+
+    private static bool TryGetElementMaterialAppearance(Element element, bool skipNearBlack, out ResolvedAppearance appearance)
+    {
+        appearance = default;
         Document doc = element.Document;
+
+        if (TryMaterialFromParameter(element, BuiltInParameter.MATERIAL_ID_PARAM, skipNearBlack, out appearance))
+            return true;
+
+        ElementId typeId = element.GetTypeId();
+        if (typeId != ElementId.InvalidElementId &&
+            doc.GetElement(typeId) is Element type &&
+            TryMaterialFromParameter(type, BuiltInParameter.MATERIAL_ID_PARAM, skipNearBlack, out appearance))
+        {
+            return true;
+        }
+
+        if (TryMaterialFromPipeMaterialParameter(element, skipNearBlack, out appearance))
+            return true;
 
         ICollection<ElementId> materialIds = [];
         try
@@ -234,22 +308,87 @@ public sealed class ColorResolver
 
         foreach (ElementId materialId in materialIds)
         {
-            if (doc.GetElement(materialId) is Material material &&
-                TryFromRevitColor(material.Color, material.Transparency, out ResolvedAppearance fromMaterial) &&
-                !fromMaterial.IsNearBlack)
-            {
-                return fromMaterial;
-            }
+            if (TryFromMaterialId(doc, materialId, skipNearBlack, out appearance))
+                return true;
         }
 
         if (element.Category?.Material is { } categoryMaterial &&
-            TryFromRevitColor(categoryMaterial.Color, categoryMaterial.Transparency, out ResolvedAppearance fromCategoryMaterial) &&
-            !fromCategoryMaterial.IsNearBlack)
+            TryFromRevitColor(categoryMaterial.Color, categoryMaterial.Transparency, out appearance) &&
+            !(skipNearBlack && appearance.IsNearBlack))
         {
-            return fromCategoryMaterial;
+            return true;
         }
 
-        return ResolvedAppearance.Default;
+        appearance = default;
+        return false;
+    }
+
+    private static bool TryMaterialFromParameter(
+        Element element,
+        BuiltInParameter builtIn,
+        bool skipNearBlack,
+        out ResolvedAppearance appearance)
+    {
+        appearance = default;
+        try
+        {
+            Parameter? parameter = element.get_Parameter(builtIn);
+            if (parameter is not { HasValue: true, StorageType: StorageType.ElementId })
+                return false;
+
+            return TryFromMaterialId(element.Document, parameter.AsElementId(), skipNearBlack, out appearance);
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryMaterialFromPipeMaterialParameter(Element element, bool skipNearBlack, out ResolvedAppearance appearance)
+    {
+        appearance = default;
+        try
+        {
+            Parameter? parameter = element.get_Parameter(BuiltInParameter.RBS_PIPE_MATERIAL_PARAM);
+            if (parameter is not { HasValue: true, StorageType: StorageType.ElementId })
+                return false;
+
+            ElementId id = parameter.AsElementId();
+            if (TryFromMaterialId(element.Document, id, skipNearBlack, out appearance))
+                return true;
+
+            if (element.Document.GetElement(id) is not Element pipeMaterial)
+                return false;
+
+            return TryMaterialFromParameter(
+                pipeMaterial,
+                BuiltInParameter.MATERIAL_ID_PARAM,
+                skipNearBlack,
+                out appearance);
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryFromMaterialId(
+        Document document,
+        ElementId materialId,
+        bool skipNearBlack,
+        out ResolvedAppearance appearance)
+    {
+        appearance = default;
+        if (materialId == ElementId.InvalidElementId)
+            return false;
+
+        if (document.GetElement(materialId) is not Material material)
+            return false;
+
+        if (!TryFromRevitColor(material.Color, material.Transparency, out appearance))
+            return false;
+
+        return !(skipNearBlack && appearance.IsNearBlack);
     }
 
     private static bool ElementPassesFilter(Element element, FilterElement filter)
@@ -259,12 +398,24 @@ public sealed class ColorResolver
             switch (filter)
             {
                 case ParameterFilterElement parameterFilter:
-                    ICollection<ElementId> categories = parameterFilter.GetCategories();
-                    if (element.Category is null || !categories.Contains(element.Category.Id))
+                    if (!CategoryIsInFilter(element, parameterFilter))
                         return false;
 
                     ElementFilter? rules = parameterFilter.GetElementFilter();
-                    return rules is null || rules.PassesFilter(element);
+                    if (rules is null)
+                        return true;
+
+                    if (PassesRules(rules, element))
+                        return true;
+
+                    // Type parameters are normally evaluated on the instance. Only retry the
+                    // type when this instance's category is already in the filter — never a host
+                    // or a different category such as Mechanical Equipment vs Duct Insulations.
+                    ElementId typeId = element.GetTypeId();
+                    return typeId != ElementId.InvalidElementId &&
+                           element.Document.GetElement(typeId) is Element type &&
+                           CategoryIsInFilter(element, parameterFilter) &&
+                           PassesRules(rules, type);
 
                 case SelectionFilterElement selectionFilter:
                     return selectionFilter.GetElementIds().Contains(element.Id);
@@ -272,6 +423,27 @@ public sealed class ColorResolver
                 default:
                     return false;
             }
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool CategoryIsInFilter(Element element, ParameterFilterElement parameterFilter)
+    {
+        if (element.Category is null)
+            return false;
+
+        ICollection<ElementId> categories = parameterFilter.GetCategories();
+        return categories.Contains(element.Category.Id);
+    }
+
+    private static bool PassesRules(ElementFilter rules, Element element)
+    {
+        try
+        {
+            return rules.PassesFilter(element);
         }
         catch (Autodesk.Revit.Exceptions.ApplicationException)
         {
@@ -375,6 +547,21 @@ public sealed class ColorResolver
         }
 
         return null;
+    }
+
+    private static bool TryGetFilterOverrideColor(OverrideGraphicSettings settings, out ResolvedAppearance appearance)
+    {
+        if (TryGetSurfaceColor(settings, out appearance))
+            return true;
+
+        if (TryFromRevitColor(settings.SurfaceBackgroundPatternColor, settings.Transparency, out appearance))
+            return true;
+
+        if (TryFromRevitColor(settings.CutBackgroundPatternColor, settings.Transparency, out appearance))
+            return true;
+
+        appearance = default;
+        return false;
     }
 
     private static bool TryGetSurfaceColor(OverrideGraphicSettings settings, out ResolvedAppearance appearance)

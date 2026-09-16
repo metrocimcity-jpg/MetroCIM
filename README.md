@@ -16,7 +16,7 @@ The **MetroCIM** ribbon tab has an **Export** panel with three commands:
 | **Export XKT** | `.xkt` for xeokit (writes a sibling `.glb` and `metadata.json`, then converts) |
 | **Export IFC** | `.ifc` using a Revit IFC setup (in-session, built-in, or saved in the model) |
 
-glTF and XKT include only what is visible in the current 3D view. IFC uses the selected Revit IFC setup; colors are applied in this order: **view filter**, **MEP system type / color fill**, then the **element material**.
+glTF and XKT include only what is visible in the current 3D view. IFC uses the selected Revit IFC setup; colors are applied in this order: **view filter**, **graphic override**, **MEP system type / color fill**, then the **element material**.
 
 ## Requirements
 

@@ -9,8 +9,9 @@ glTF / XKT:
 
 IFC color (first match wins, only on that element):
 1. View filter that actually includes this element (its category and rules)
-2. MEP system type / color fill, for elements with no filter color
-3. Material of the element
+2. Graphic override on this element
+3. MEP system type / color fill
+4. Material of the element
 
 ## Stack
 - Revit **2025 / 2026 / 2027** API, C# (`net8.0-windows` for 2025–2026, `net10.0-windows` for 2027)

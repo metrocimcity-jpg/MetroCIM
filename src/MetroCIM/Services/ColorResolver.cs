@@ -103,6 +103,13 @@ public sealed class ColorResolver
             transparency = filterTransparency;
         }
 
+        ResolvedAppearance? graphicOverride = null;
+        if (TryGetOverrideAppearance(element, view, IsPipingElement(element), out ResolvedAppearance overrideColor, out int? overrideTransparency))
+        {
+            graphicOverride = overrideColor;
+            transparency ??= overrideTransparency;
+        }
+
         ResolvedAppearance? systemOrColorFill = null;
         if (TryGetSystemTypeAppearance(element, view, IsPipingElement(element), out ResolvedAppearance systemColor) ||
             (source.Id != element.Id &&
@@ -119,7 +126,7 @@ public sealed class ColorResolver
         }
 
         return WithTransparency(
-            IfcColorPriority.Select(filter, systemOrColorFill, elementColor),
+            IfcColorPriority.Select(filter, graphicOverride, systemOrColorFill, elementColor),
             transparency);
     }
 

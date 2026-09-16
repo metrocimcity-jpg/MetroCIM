@@ -6,7 +6,7 @@ namespace MetroCIM.Services;
 
 /// <summary>
 /// Pushes IFC colors onto elements for the duration of an export.
-/// Priority: view filter on this element only, then system type, then this element's material.
+/// Priority: view filter on this element, then graphic override, then system type, then this element's material.
 /// </summary>
 public sealed class IfcAppearanceApplier
 {

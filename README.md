@@ -23,10 +23,12 @@ Both hosts use a **MetroCIM** ribbon tab with an **Export** panel:
 
 ### Revit
 - glTF / XKT: active **3D view** visibility and colors (filters, overrides, MEP system types)
-- IFC: selected Revit IFC setup, then MetroCIM color apply + STEP patch
+- glTF / XKT: choose **Local location** (Project Base Point) or **Shared Coordination** before save
+- IFC: selected Revit IFC setup, then MetroCIM color apply + STEP patch (coordinates come from the IFC setup, not the Local/Shared prompt)
 
 ### Navisworks
 - glTF / XKT / IFC: all **visible** model items (not hidden)
+- Choose **Local location** (primary model origin) or **Shared Coordination** (world / federated) before save
 - Colors: fragment appearance, then color-like properties
 - IFC: MetroCIM IFC4 mesh writer (`IfcTriangulatedFaceSet`) — Navisworks has no Revit IFC setup picker
 

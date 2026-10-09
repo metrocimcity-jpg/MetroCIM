@@ -14,7 +14,8 @@ public sealed class ViewExporter
         View3D view,
         string path,
         Action<int, int, string>? progress = null,
-        List<ExportedElement>? exportedElements = null)
+        List<ExportedElement>? exportedElements = null,
+        CoordinateMode coordinateMode = CoordinateMode.Local)
     {
         IReadOnlyList<Element> visible = _visibility.GetVisibleElements(
             document,
@@ -23,6 +24,7 @@ public sealed class ViewExporter
         HashSet<ElementId> skipHosts = HostsCoveredByInsulation(visible);
         _colors.Bind(view);
         _geometry.ClearCache();
+        Transform frame = CoordinateFrame.Resolve(document, coordinateMode);
 
         var writer = new GltfSceneAccumulator();
         int exported = 0;
@@ -35,7 +37,7 @@ public sealed class ViewExporter
             if (skipHosts.Contains(element.Id))
                 continue;
 
-            TriangleMesh? mesh = _geometry.BuildMesh(element, view);
+            TriangleMesh? mesh = _geometry.BuildMesh(element, view, frame);
             if (mesh is null)
                 continue;
 
@@ -61,7 +63,8 @@ public sealed class ViewExporter
         View3D view,
         string path,
         List<ExportedElement> exportedElements,
-        Action<int, int, string>? progress = null)
+        Action<int, int, string>? progress = null,
+        CoordinateMode coordinateMode = CoordinateMode.Local)
     {
         IReadOnlyList<Element> visible = _visibility.GetVisibleElements(
             document,
@@ -70,6 +73,7 @@ public sealed class ViewExporter
         HashSet<ElementId> skipHosts = HostsCoveredByInsulation(visible);
         _colors.Bind(view);
         _geometry.ClearCache();
+        Transform frame = CoordinateFrame.Resolve(document, coordinateMode);
 
         var writer = new GltfSceneAccumulator();
         int index = 0;
@@ -81,7 +85,7 @@ public sealed class ViewExporter
             if (skipHosts.Contains(element.Id))
                 continue;
 
-            TriangleMesh? mesh = _geometry.BuildMesh(element, view);
+            TriangleMesh? mesh = _geometry.BuildMesh(element, view, frame);
             if (mesh is null)
                 continue;
 

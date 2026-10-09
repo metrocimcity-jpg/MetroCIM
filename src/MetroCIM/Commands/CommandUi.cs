@@ -1,5 +1,7 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using MetroCIM.Models;
+using MetroCIM.Services;
 using System.Windows.Forms;
 using RevitTaskDialog = Autodesk.Revit.UI.TaskDialog;
 
@@ -7,6 +9,9 @@ namespace MetroCIM.Commands;
 
 internal static class CommandUi
 {
+    private static string PreferenceDirectory =>
+        Path.GetDirectoryName(typeof(CommandUi).Assembly.Location)!;
+
     public static bool TryGetActiveDocument(
         ExternalCommandData commandData,
         string title,
@@ -73,6 +78,48 @@ internal static class CommandUi
         };
 
         return dialog.ShowDialog() == DialogResult.OK ? dialog.FileName : null;
+    }
+
+    /// <summary>
+    /// Local (Project Base Point) vs Shared Coordination. Cancel returns null.
+    /// </summary>
+    public static CoordinateMode? PickCoordinateMode(string title)
+    {
+        CoordinateMode preferred = CoordinateModePreference.Read(PreferenceDirectory);
+
+        var dialog = new RevitTaskDialog(title)
+        {
+            MainInstruction = "Coordinate system",
+            MainContent = "Choose how geometry is placed in the export.",
+            CommonButtons = TaskDialogCommonButtons.Cancel,
+            DefaultButton = preferred == CoordinateMode.Shared
+                ? TaskDialogResult.CommandLink2
+                : TaskDialogResult.CommandLink1
+        };
+
+        dialog.AddCommandLink(
+            TaskDialogCommandLinkId.CommandLink1,
+            "Local location",
+            "Origin at the Project Base Point.");
+        dialog.AddCommandLink(
+            TaskDialogCommandLinkId.CommandLink2,
+            "Shared Coordination",
+            "Origin in Shared Coordinates.");
+
+        TaskDialogResult result = dialog.Show();
+        if (result == TaskDialogResult.CommandLink1)
+        {
+            CoordinateModePreference.Write(PreferenceDirectory, CoordinateMode.Local);
+            return CoordinateMode.Local;
+        }
+
+        if (result == TaskDialogResult.CommandLink2)
+        {
+            CoordinateModePreference.Write(PreferenceDirectory, CoordinateMode.Shared);
+            return CoordinateMode.Shared;
+        }
+
+        return null;
     }
 
     public static string SanitizeFileName(string name)

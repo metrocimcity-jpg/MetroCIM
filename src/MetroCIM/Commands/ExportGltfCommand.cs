@@ -1,6 +1,7 @@
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using MetroCIM.Models;
 using MetroCIM.Services;
 
 namespace MetroCIM.Commands;
@@ -14,6 +15,10 @@ public sealed class ExportGltfCommand : IExternalCommand
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
     {
         if (!CommandUi.TryGetActive3DView(commandData, Title, out Document document, out View3D view))
+            return Result.Cancelled;
+
+        CoordinateMode? coordinateMode = CommandUi.PickCoordinateMode(Title);
+        if (coordinateMode is null)
             return Result.Cancelled;
 
         string? outputPath = CommandUi.PickSavePath(
@@ -37,7 +42,8 @@ public sealed class ExportGltfCommand : IExternalCommand
                     (current, total, status) =>
                     {
                         progress.Report(current, status, total);
-                    });
+                    },
+                    coordinateMode: coordinateMode.Value);
             }
 
             if (count == 0)

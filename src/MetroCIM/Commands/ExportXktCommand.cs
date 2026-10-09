@@ -28,6 +28,10 @@ public sealed class ExportXktCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        CoordinateMode? coordinateMode = CommandUi.PickCoordinateMode(Title);
+        if (coordinateMode is null)
+            return Result.Cancelled;
+
         string? xktPath = CommandUi.PickSavePath(
             Title,
             "xeokit XKT (*.xkt)|*.xkt",
@@ -55,7 +59,8 @@ public sealed class ExportXktCommand : IExternalCommand
                     view,
                     gltfPath,
                     (current, total, status) => progress.Report(current, status, total),
-                    exported);
+                    exported,
+                    coordinateMode.Value);
 
                 if (count == 0)
                 {

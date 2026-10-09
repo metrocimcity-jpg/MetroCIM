@@ -1,4 +1,5 @@
 using Autodesk.Navisworks.Api;
+using MetroCIM.Models;
 using MetroCIM.Navisworks.Services;
 using MetroCIM.Services;
 using System.Windows.Forms;
@@ -11,6 +12,10 @@ internal static class ExportCommands
     public static int ExportGltf()
     {
         if (!TryGetDocument(out Document document))
+            return 0;
+
+        CoordinateMode? coordinateMode = CommandUi.PickCoordinateMode("Export glTF");
+        if (coordinateMode is null)
             return 0;
 
         string? path = CommandUi.PickSavePath(
@@ -29,7 +34,8 @@ internal static class ExportCommands
                 count = new DocumentExporter().ExportColorBatched(
                     document,
                     path,
-                    (current, total, status) => progress.Report(current, status, total));
+                    (current, total, status) => progress.Report(current, status, total),
+                    coordinateMode: coordinateMode.Value);
             }
 
             if (count == 0)
@@ -64,6 +70,10 @@ internal static class ExportCommands
             return 0;
         }
 
+        CoordinateMode? coordinateMode = CommandUi.PickCoordinateMode("Export XKT");
+        if (coordinateMode is null)
+            return 0;
+
         string? xktPath = CommandUi.PickSavePath(
             "Export XKT",
             "xeokit XKT (*.xkt)|*.xkt",
@@ -90,7 +100,8 @@ internal static class ExportCommands
                     document,
                     gltfPath,
                     (current, total, status) => progress.Report(current, status, total),
-                    exported);
+                    exported,
+                    coordinateMode.Value);
 
                 if (count == 0)
                 {
@@ -129,6 +140,10 @@ internal static class ExportCommands
         if (!TryGetDocument(out Document document))
             return 0;
 
+        CoordinateMode? coordinateMode = CommandUi.PickCoordinateMode("Export IFC");
+        if (coordinateMode is null)
+            return 0;
+
         string? path = CommandUi.PickSavePath(
             "Export IFC",
             "IFC (*.ifc)|*.ifc",
@@ -145,7 +160,8 @@ internal static class ExportCommands
                 count = new DocumentExporter().ExportIfc(
                     document,
                     path,
-                    (current, total, status) => progress.Report(current, status, total));
+                    (current, total, status) => progress.Report(current, status, total),
+                    coordinateMode.Value);
             }
 
             if (count == 0)
@@ -181,6 +197,9 @@ internal static class ExportCommands
 
 internal static class CommandUi
 {
+    private static string PreferenceDirectory =>
+        Path.GetDirectoryName(typeof(CommandUi).Assembly.Location)!;
+
     public static string DefaultBaseName(Document document)
     {
         string title = string.IsNullOrWhiteSpace(document.Title) ? "Model" : document.Title;
@@ -200,6 +219,81 @@ internal static class CommandUi
             OverwritePrompt = true
         };
         return dialog.ShowDialog() == DialogResult.OK ? dialog.FileName : null;
+    }
+
+    public static CoordinateMode? PickCoordinateMode(string title)
+    {
+        CoordinateMode preferred = CoordinateModePreference.Read(PreferenceDirectory);
+
+        using var form = new Form
+        {
+            Text = title,
+            Width = 440,
+            Height = 200,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterScreen,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = false
+        };
+
+        var label = new Label
+        {
+            Left = 16,
+            Top = 16,
+            Width = 390,
+            Text = "Coordinate system"
+        };
+
+        var local = new RadioButton
+        {
+            Left = 16,
+            Top = 48,
+            Width = 390,
+            Text = "Local location (primary model origin)",
+            Checked = preferred == CoordinateMode.Local
+        };
+
+        var shared = new RadioButton
+        {
+            Left = 16,
+            Top = 78,
+            Width = 390,
+            Text = "Shared Coordination (world / federated)",
+            Checked = preferred == CoordinateMode.Shared
+        };
+
+        var ok = new Button
+        {
+            Text = "Continue",
+            DialogResult = DialogResult.OK,
+            Left = 220,
+            Top = 118,
+            Width = 90
+        };
+        var cancel = new Button
+        {
+            Text = "Cancel",
+            DialogResult = DialogResult.Cancel,
+            Left = 316,
+            Top = 118,
+            Width = 90
+        };
+
+        form.Controls.Add(label);
+        form.Controls.Add(local);
+        form.Controls.Add(shared);
+        form.Controls.Add(ok);
+        form.Controls.Add(cancel);
+        form.AcceptButton = ok;
+        form.CancelButton = cancel;
+
+        if (form.ShowDialog() != DialogResult.OK)
+            return null;
+
+        CoordinateMode mode = shared.Checked ? CoordinateMode.Shared : CoordinateMode.Local;
+        CoordinateModePreference.Write(PreferenceDirectory, mode);
+        return mode;
     }
 
     public static void Show(string title, string message) =>

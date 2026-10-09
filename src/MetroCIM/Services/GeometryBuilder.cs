@@ -11,7 +11,7 @@ public sealed class GeometryBuilder
 
     public void ClearCache() => _symbolCache.Clear();
 
-    public TriangleMesh? BuildMesh(Element element, View3D view)
+    public TriangleMesh? BuildMesh(Element element, View3D view, Transform? coordinateTransform = null)
     {
         Options options = new()
         {
@@ -41,7 +41,7 @@ public sealed class GeometryBuilder
         };
 
         var mesh = new TriangleMesh();
-        Collect(geometry, Transform.Identity, mesh, lod);
+        Collect(geometry, coordinateTransform ?? Transform.Identity, mesh, lod);
         return mesh.IsEmpty ? null : mesh;
     }
 

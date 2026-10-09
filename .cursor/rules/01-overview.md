@@ -20,8 +20,15 @@ Tab **MetroCIM**, panel **Export**:
 - **Export XKT**
 - **Export IFC**
 
+## Coordinates
+- **Local location** / **Shared Coordination** prompt before glTF and XKT (Revit) and before all three Navisworks exports
+- Revit Local = Project Base Point; Shared = Shared Coordinates
+- Navisworks Local = primary model origin; Shared = world / federated
+- **Revit Export IFC** does not use this prompt — site/coords stay in the selected Revit IFC setup
+
 ## Non-goals
 - No import
 - No native C# XKT writer
 - No Revit IFC setup picker inside Navisworks
 - No Navisworks Freedom/Viewer plugins
+- No MetroCIM override of Revit IFC setup coordinate options

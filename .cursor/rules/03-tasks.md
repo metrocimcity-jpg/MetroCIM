@@ -2,6 +2,8 @@
 
 Work in this order. Ask before skipping.
 
+Plan (Navisworks add-in, completed): [navisworks_metrocim_add-in.plan.md](navisworks_metrocim_add-in.plan.md).
+
 ## Done
 - [x] Scaffold Revit add-in for **2025 / 2026 / 2027** (Nice3point API refs, `.addin`)
 - [x] Shared `MetroCIM.Core` (glTF / XKT / IFC mesh writers)
@@ -12,6 +14,10 @@ Work in this order. Ask before skipping.
 - [x] Detect missing Node.js / xeokit-convert before XKT conversion
 - [x] Project/assembly/add-in name **MetroCIM**
 
+## Done (coordinates)
+- [x] Local / Shared Coordination choice for Revit glTF/XKT and all Navisworks exporters
+- [x] Revit IFC coordinates remain entirely in the Revit IFC setup
+
 ## Remaining
 - [ ] 1. Keep glTF, XKT, and IFC as separate ribbon commands; do not recombine them
 - [x] 2. Install XKT runtime: Node.js + `npm install -g @xeokit/xeokit-convert`
@@ -20,6 +26,7 @@ Work in this order. Ask before skipping.
 - [ ] 5. Confirm `.glb` opens in a glTF viewer and `.xkt` opens in a xeokit viewer
 - [ ] 6. Confirm Revit IFC export uses a saved/built-in Revit IFC setup
 - [ ] 7. Confirm Navisworks Export IFC opens in a viewer with on-screen colors
+- [ ] 8. Confirm Local vs Shared placement for a coordinated model (Revit glTF + Navisworks glTF)
 
 ## Constraints
 - No telemetry and no unprompted network calls (only the local xeokit-convert process)

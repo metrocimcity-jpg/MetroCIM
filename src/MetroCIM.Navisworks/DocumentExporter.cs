@@ -14,7 +14,8 @@ public sealed class DocumentExporter
         Document document,
         string path,
         Action<int, int, string>? progress = null,
-        List<ExportedItem>? exportedItems = null)
+        List<ExportedItem>? exportedItems = null,
+        CoordinateMode coordinateMode = CoordinateMode.Shared)
     {
         IReadOnlyList<ModelItem> visible = _visibility.GetVisibleGeometryItems(
             document,
@@ -29,7 +30,7 @@ public sealed class DocumentExporter
             index++;
             progress?.Invoke(index, visible.Count, "Reading geometry");
 
-            TriangleMesh? mesh = _geometry.BuildMesh(document, item);
+            TriangleMesh? mesh = _geometry.BuildMesh(document, item, coordinateMode);
             if (mesh is null)
                 continue;
 
@@ -47,7 +48,8 @@ public sealed class DocumentExporter
     public int ExportIfc(
         Document document,
         string path,
-        Action<int, int, string>? progress = null)
+        Action<int, int, string>? progress = null,
+        CoordinateMode coordinateMode = CoordinateMode.Shared)
     {
         IReadOnlyList<ModelItem> visible = _visibility.GetVisibleGeometryItems(
             document,
@@ -61,7 +63,7 @@ public sealed class DocumentExporter
             index++;
             progress?.Invoke(index, visible.Count, "Reading geometry");
 
-            TriangleMesh? mesh = _geometry.BuildMesh(document, item);
+            TriangleMesh? mesh = _geometry.BuildMesh(document, item, coordinateMode);
             if (mesh is null)
                 continue;
 

@@ -39,38 +39,42 @@ Both hosts use a **MetroCIM** ribbon tab with an **Export** panel:
   - [Node.js](https://nodejs.org/)
   - `npm install -g @xeokit/xeokit-convert`
 
-## Install — Revit
+## Installers (separate per-user EXE)
+
+Nullsoft (NSIS) installers — **no administrator permission**. They write only under `%AppData%`.
+
+Prerequisite on the build machine: [NSIS](https://nsis.sourceforge.io/Download) (`winget install --id NSIS.NSIS -e`).
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File installer\Build-RevitInstaller.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File installer\Build-NavisworksInstaller.ps1
+```
+
+Outputs:
+
+- `dist\MetroCIM-Revit-1.0.0.exe` — quit Revit, run the EXE
+- `dist\MetroCIM-Navisworks-1.0.0.exe` — quit Navisworks, run the EXE
+
+Uninstall from Windows **Settings → Apps** (per-user entry) or run the uninstaller under `%AppData%\MetroCIM\...`.
+
+### Developer deploy (optional)
+
+Copy straight into AppData from a local build:
 
 ```bat
 dotnet build src/MetroCIM/MetroCIM.csproj -p:DeployAddin=true
 dotnet build src/MetroCIM/MetroCIM.csproj -p:RevitVersion=2026 -p:DeployAddin=true
 dotnet build src/MetroCIM/MetroCIM.csproj -p:RevitVersion=2025 -p:DeployAddin=true
-```
 
-Writes (example 2027):
-
-- `%AppData%\Autodesk\Revit\Addins\2027\MetroCIM.addin`
-- `%AppData%\Autodesk\Revit\Addins\2027\MetroCIM\MetroCIM.dll`
-
-Quit Revit before installing.
-
-## Install — Navisworks
-
-```bat
 dotnet build src/MetroCIM.Navisworks/MetroCIM.Navisworks.csproj -p:DeployAddin=true
 dotnet build src/MetroCIM.Navisworks/MetroCIM.Navisworks.csproj -p:NavisworksVersion=2026 -p:DeployAddin=true
 dotnet build src/MetroCIM.Navisworks/MetroCIM.Navisworks.csproj -p:NavisworksVersion=2025 -p:DeployAddin=true
 ```
 
-Writes:
+Install locations:
 
-```text
-%AppData%\Autodesk\ApplicationPlugins\MetroCIM.Navisworks.bundle\
-  PackageContents.xml
-  Contents\2025|2026|2027\MetroCIM.Navisworks.dll
-```
-
-Quit Navisworks before installing, then restart and use the **MetroCIM** tab.
+- Revit: `%AppData%\Autodesk\Revit\Addins\<year>\`
+- Navisworks: `%AppData%\Autodesk\ApplicationPlugins\MetroCIM.Navisworks.bundle\`
 
 ## Build
 

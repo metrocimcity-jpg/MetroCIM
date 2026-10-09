@@ -6,6 +6,8 @@ bin/
 obj/
 [Bb]uild/
 [Ll]og/
+artifacts/
+dist/
 *.user
 *.suo
 *.userosscache

@@ -34,6 +34,7 @@ Unchanged Revit rules: view visibility; surface colors (filters, overrides, MEP 
 ## Packaging
 - Revit: `%AppData%\Autodesk\Revit\Addins\<year>\`
 - Navisworks: `%AppData%\Autodesk\ApplicationPlugins\MetroCIM.Navisworks.bundle\` with `PackageContents.xml` (Nw22/Nw23/Nw24)
+- Separate per-user NSIS EXE installers (no admin): `installer/Build-RevitInstaller.ps1` → `dist/MetroCIM-Revit-*.exe`; `installer/Build-NavisworksInstaller.ps1` → `dist/MetroCIM-Navisworks-*.exe`
 
 ## XKT
 ```text

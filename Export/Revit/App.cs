@@ -57,9 +57,21 @@ public sealed class App : IExternalApplication
                 "Exports the model to IFC using a Revit IFC export setup (in-session, built-in, or saved in this project)."
         };
 
+        var excelButton = new PushButtonData(
+            "ExportExcel",
+            "Export\nExcel",
+            assemblyPath,
+            typeof(ExportExcelCommand).FullName)
+        {
+            ToolTip = "Export Excel (parameters)",
+            LongDescription =
+                "Exports visible model instances from the active 3D view to Excel (.xlsx) with Revit Id, IFC GUID, and all instance/type parameter values."
+        };
+
         panel.AddItem(gltfButton);
         panel.AddItem(xktButton);
         panel.AddItem(ifcButton);
+        panel.AddItem(excelButton);
         return Result.Succeeded;
     }
 

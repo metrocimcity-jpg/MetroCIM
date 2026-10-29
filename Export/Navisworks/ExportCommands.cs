@@ -180,6 +180,46 @@ internal static class ExportCommands
         }
     }
 
+    public static int ExportExcel()
+    {
+        if (!TryGetDocument(out Document document))
+            return 0;
+
+        string? path = CommandUi.PickSavePath(
+            "Export Excel",
+            "Excel Workbook (*.xlsx)|*.xlsx",
+            CommandUi.DefaultBaseName(document) + "-parameters");
+        if (path is null)
+            return 0;
+
+        try
+        {
+            int count;
+            using (var progress = new ExportProgress("Export Excel", 1))
+            {
+                progress.Report(0, "Collecting visible items");
+                count = new ExcelParameterExporter().Export(
+                    document,
+                    path,
+                    (current, total, status) => progress.Report(current, status, total));
+            }
+
+            if (count == 0)
+            {
+                CommandUi.Show("Export Excel", "No visible model instances were found.");
+                return 0;
+            }
+
+            CommandUi.Show("Export Excel", $"Excel saved\n{path}\n\nInstances: {count}");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            CommandUi.Show("Export Excel", $"Excel export failed.\n{ex.Message}");
+            return 0;
+        }
+    }
+
     private static bool TryGetDocument(out Document document)
     {
         document = null!;

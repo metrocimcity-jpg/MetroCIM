@@ -11,6 +11,7 @@
         <RibbonButton Id="ID_Button_ExportGltf" Text="Export glTF" ShowText="True" Size="Large" />
         <RibbonButton Id="ID_Button_ExportXkt" Text="Export XKT" ShowText="True" Size="Large" />
         <RibbonButton Id="ID_Button_ExportIfc" Text="Export IFC" ShowText="True" Size="Large" />
+        <RibbonButton Id="ID_Button_ExportExcel" Text="Export Excel" ShowText="True" Size="Large" />
       </RibbonPanelSource>
     </RibbonPanel>
   </RibbonTab>

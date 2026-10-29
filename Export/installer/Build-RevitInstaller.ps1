@@ -14,8 +14,8 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "Resolve-Makensis.ps1")
 $Makensis = Resolve-Makensis
 
-$RepoRoot = Split-Path -Parent $PSScriptRoot
-$Project = Join-Path $RepoRoot "src\MetroCIM\MetroCIM.csproj"
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$Project = Join-Path $RepoRoot "Export\Revit\MetroCIM.csproj"
 $Nsi = Join-Path $PSScriptRoot "revit\MetroCIM-Revit.nsi"
 $Staging = Join-Path $RepoRoot "artifacts\staging\MetroCIM-Revit"
 $Dist = Join-Path $RepoRoot "dist"
@@ -38,7 +38,7 @@ foreach ($year in $Years) {
         throw "dotnet build failed for Revit $year (exit $LASTEXITCODE)."
     }
 
-    $out = Join-Path $RepoRoot "src\MetroCIM\bin\$year\$Configuration"
+    $out = Join-Path $RepoRoot "Export\Revit\bin\$year\$Configuration"
     if (-not (Test-Path (Join-Path $out "MetroCIM.dll"))) {
         throw "Missing MetroCIM.dll under $out"
     }

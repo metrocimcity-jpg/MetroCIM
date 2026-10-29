@@ -10,6 +10,7 @@ namespace MetroCIM.Navisworks;
 [Command("ID_Button_ExportGltf", DisplayName = "Export\nglTF", ToolTip = "Export glTF with on-screen colors", ExtendedToolTip = "Exports visible model geometry to glTF (.glb/.gltf).")]
 [Command("ID_Button_ExportXkt", DisplayName = "Export\nXKT", ToolTip = "Export XKT with on-screen colors", ExtendedToolTip = "Exports visible model geometry to XKT via xeokit-convert.")]
 [Command("ID_Button_ExportIfc", DisplayName = "Export\nIFC", ToolTip = "Export IFC with on-screen colors", ExtendedToolTip = "Exports visible model geometry to IFC4 with system/override colors.")]
+[Command("ID_Button_ExportExcel", DisplayName = "Export\nExcel", ToolTip = "Export Excel with parameters", ExtendedToolTip = "Exports visible model instances to Excel (.xlsx) with Revit Id, IFC GUID, and all property values.")]
 public sealed class MetroCIMRibbon : CommandHandlerPlugin
 {
     public override int ExecuteCommand(string name, params string[] parameters)
@@ -19,6 +20,7 @@ public sealed class MetroCIMRibbon : CommandHandlerPlugin
             "ID_Button_ExportGltf" => ExportCommands.ExportGltf(),
             "ID_Button_ExportXkt" => ExportCommands.ExportXkt(),
             "ID_Button_ExportIfc" => ExportCommands.ExportIfc(),
+            "ID_Button_ExportExcel" => ExportCommands.ExportExcel(),
             _ => 0
         };
     }

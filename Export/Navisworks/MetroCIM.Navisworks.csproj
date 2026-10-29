@@ -28,7 +28,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\MetroCIM.Core\MetroCIM.Core.csproj" />
+    <ProjectReference Include="..\Core\MetroCIM.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

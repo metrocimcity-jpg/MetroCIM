@@ -1,0 +1,22 @@
+---
+description: MetroCIM product root is Export/ — follow rules and layout there
+alwaysApply: true
+---
+
+# MetroCIM lives in Export/
+
+All add-in code, docs, installers, and detailed project rules are under `Export/`.
+
+Follow these files (read them when working on this repo):
+
+- [Export/rules/01-overview.md](../../Export/rules/01-overview.md)
+- [Export/rules/02-architecture.md](../../Export/rules/02-architecture.md)
+- [Export/rules/03-tasks.md](../../Export/rules/03-tasks.md)
+- [Export/README.md](../../Export/README.md)
+
+Layout:
+
+```text
+Export/
+  Core/  Revit/  Navisworks/  Tests/  installer/  docs/  rules/
+```

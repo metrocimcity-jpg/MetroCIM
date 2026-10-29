@@ -18,6 +18,9 @@ Plan (Navisworks add-in, completed): [navisworks_metrocim_add-in.plan.md](navisw
 - [x] Local / Shared Coordination choice for Revit glTF/XKT and all Navisworks exporters
 - [x] Revit IFC coordinates remain entirely in the Revit IFC setup
 
+## Done (Excel)
+- [x] Export Excel button on Revit and Navisworks (visible instances, Revit Id + IFC GUID + all parameters)
+
 ## Remaining
 - [ ] 1. Keep glTF, XKT, and IFC as separate ribbon commands; do not recombine them
 - [x] 2. Install XKT runtime: Node.js + `npm install -g @xeokit/xeokit-convert`

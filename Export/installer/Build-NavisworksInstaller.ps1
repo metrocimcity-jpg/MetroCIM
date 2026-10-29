@@ -14,14 +14,14 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "Resolve-Makensis.ps1")
 $Makensis = Resolve-Makensis
 
-$RepoRoot = Split-Path -Parent $PSScriptRoot
-$Project = Join-Path $RepoRoot "src\MetroCIM.Navisworks\MetroCIM.Navisworks.csproj"
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$Project = Join-Path $RepoRoot "Export\Navisworks\MetroCIM.Navisworks.csproj"
 $Nsi = Join-Path $PSScriptRoot "navisworks\MetroCIM-Navisworks.nsi"
 $Staging = Join-Path $RepoRoot "artifacts\staging\MetroCIM-Navisworks"
 $BundleStage = Join-Path $Staging "MetroCIM.Navisworks.bundle"
 $Dist = Join-Path $RepoRoot "dist"
 $ExePath = Join-Path $Dist "MetroCIM-Navisworks-$Version.exe"
-$PackageContents = Join-Path $RepoRoot "src\MetroCIM.Navisworks\PackageContents.xml"
+$PackageContents = Join-Path $RepoRoot "Export\Navisworks\PackageContents.xml"
 
 Write-Host "Building Navisworks NSIS installer ($Configuration) years: $($Years -join ', ')"
 Write-Host "makensis: $Makensis"
@@ -42,7 +42,7 @@ foreach ($year in $Years) {
         throw "dotnet build failed for Navisworks $year (exit $LASTEXITCODE)."
     }
 
-    $out = Join-Path $RepoRoot "src\MetroCIM.Navisworks\bin\$year\$Configuration"
+    $out = Join-Path $RepoRoot "Export\Navisworks\bin\$year\$Configuration"
     if (-not (Test-Path (Join-Path $out "MetroCIM.Navisworks.dll"))) {
         throw "Missing MetroCIM.Navisworks.dll under $out"
     }

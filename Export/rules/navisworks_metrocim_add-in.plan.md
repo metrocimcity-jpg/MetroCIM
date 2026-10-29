@@ -62,20 +62,20 @@ flowchart LR
   Mesh --> Ifc
 ```
 
-### 1. Extract portable core — `src/MetroCIM.Core/`
+### 1. Extract portable core — `Export/Core/`
 New `netstandard2.0` library so Revit (`net8`/`net10`) and Navisworks (`net48`) can share writers:
 - Move/adapt host-free types from Revit: `ResolvedAppearance`, `TriangleMesh`, `GltfSceneAccumulator` / save helpers, `XktConverter`, progress-agnostic path helpers.
 - Add **`IfcMeshExporter`**: write IFC4 STEP from color-batched meshes (products + `IfcTriangulatedFaceSet` + `IfcColourRgb` / `IfcStyledItem`). This is the Navisworks **Export IFC** implementation.
 - Keep Revit project compiling by referencing Core and deleting duplicated files (or thin wrappers).
 
-### 2. Navisworks host — `src/MetroCIM.Navisworks/`
-Multi-version via `-p:NavisworksVersion=2025|2026|2027` (default 2027), similar to [Directory.Build.props](../../Directory.Build.props):
+### 2. Navisworks host — `Export/Navisworks/`
+Multi-version via `-p:NavisworksVersion=2025|2026|2027` (default 2027), similar to [Directory.Build.props](../Directory.Build.props):
 - `Speckle.Navisworks.API` matching year; `ExcludeAssets=runtime`.
 - Entry: managed plugins + ribbon (tab **MetroCIM**, three commands).
 - **`VisibilityService`:** walk `Document.Models` / descendants; skip hidden / hidden-from-view / non-geometry.
 - **`ColorResolver`:** item override color → COM fragment appearance (diffuse) → useful property colors when present → neutral default. Map MEP-like properties (`System Type`, `System Name`, etc.) when present on items.
 - **`GeometryBuilder`:** COM `GenerateSimplePrimitives(eNORMAL | eCOLOR)` via `ComApiBridge`; transform to meters + glTF Y-up; build `TriangleMesh`.
-- **`DocumentExporter`:** orchestrate like [ViewExporter.cs](../../src/MetroCIM/Services/ViewExporter.cs) — visible items → color → mesh → Core writers.
+- **`DocumentExporter`:** orchestrate like [ViewExporter.cs](../Revit/Services/ViewExporter.cs) — visible items → color → mesh → Core writers.
 - **`MetadataExporter`:** xeokit `metadata.json` from Navisworks property categories.
 - Shared WinForms save/progress UI patterns (no Revit `TaskDialog`).
 
@@ -96,7 +96,7 @@ Build: `dotnet build ... -p:NavisworksVersion=2027 -p:DeployAddin=true`.
 
 ### 4. Tests + docs
 - Core unit tests for `IfcMeshExporter` (minimal STEP with one colored face set) and existing portable tests moved with Core.
-- Update [README.md](../../README.md), [01-overview.md](01-overview.md), [02-architecture.md](02-architecture.md), [03-tasks.md](03-tasks.md), and [MetroCIM.slnx](../../MetroCIM.slnx).
+- Update [README.md](../README.md), [01-overview.md](01-overview.md), [02-architecture.md](02-architecture.md), [03-tasks.md](03-tasks.md), and [MetroCIM.slnx](../MetroCIM.slnx).
 
 ## Out of scope / honest limits
 - No Revit IFC setup picker or `Document.Export` parity.

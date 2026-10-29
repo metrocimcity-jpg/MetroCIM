@@ -14,6 +14,9 @@
   <ItemGroup>
     <!-- 1.0.0 keeps System.Text.Json compatible with net48 Navisworks hosts. -->
     <PackageReference Include="SharpGLTF.Toolkit" Version="1.0.0" />
+    <PackageReference Include="DocumentFormat.OpenXml" Version="2.20.0" />
+    <!-- Needed at runtime for OpenXML on net48 Navisworks hosts. -->
+    <PackageReference Include="System.IO.Packaging" Version="8.0.1" />
     <PackageReference Include="PolySharp" Version="1.*" PrivateAssets="all" />
   </ItemGroup>
 

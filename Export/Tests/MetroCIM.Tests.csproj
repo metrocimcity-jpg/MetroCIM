@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\MetroCIM\MetroCIM.csproj" />
+    <ProjectReference Include="..\Revit\MetroCIM.csproj" />
   </ItemGroup>
 
 </Project>

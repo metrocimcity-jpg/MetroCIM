@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Core/MetroCIM.Core.csproj" />
+  <Project Path="Revit/MetroCIM.csproj" />
+  <Project Path="Navisworks/MetroCIM.Navisworks.csproj" />
+  <Project Path="Tests/MetroCIM.Tests.csproj" />
+</Solution>

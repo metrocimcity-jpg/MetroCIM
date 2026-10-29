@@ -21,6 +21,8 @@ todos:
 
 # Navisworks MetroCIM Add-in (same repo)
 
+> **Status:** completed. Later work (also done): Local/Shared coordinates, Export Excel, separate NSIS installers, and relocating the product under `Export/` with rules in `Export/rules/`. Prefer [01-overview.md](01-overview.md) / [02-architecture.md](02-architecture.md) / [03-tasks.md](03-tasks.md) for current prompts.
+
 ## Decisions locked
 - **No new GitHub repo** — live in MetroCIM alongside the Revit add-in.
 - **Years:** Navisworks Manage/Simulate **2025, 2026, 2027** (same span as Revit).

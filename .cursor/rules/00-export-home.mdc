@@ -9,10 +9,12 @@ All add-in code, docs, installers, and detailed project rules are under `Export/
 
 Follow these files (read them when working on this repo):
 
-- [Export/rules/01-overview.md](../../Export/rules/01-overview.md)
-- [Export/rules/02-architecture.md](../../Export/rules/02-architecture.md)
-- [Export/rules/03-tasks.md](../../Export/rules/03-tasks.md)
-- [Export/README.md](../../Export/README.md)
+- [Export/rules/01-overview.md](../../Export/rules/01-overview.md) — goal, hosts, ribbon, coords, non-goals
+- [Export/rules/02-architecture.md](../../Export/rules/02-architecture.md) — layout, Core/Revit/NW, packaging
+- [Export/rules/03-tasks.md](../../Export/rules/03-tasks.md) — done vs remaining work
+- [Export/README.md](../../Export/README.md) — install, deploy, build
+
+Current product shape: four ribbon commands (glTF, XKT, IFC, Excel) on Revit and Navisworks 2025–2027; Local/Shared for mesh exports; separate per-user NSIS installers.
 
 Layout:
 

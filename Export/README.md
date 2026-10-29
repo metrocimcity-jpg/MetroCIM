@@ -1,11 +1,13 @@
 # MetroCIM
 
-Export **visible 3D geometry** to **glTF**, **XKT**, and **IFC** with the colors you see on screen.
+Export **visible 3D geometry** to **glTF**, **XKT**, and **IFC** with the colors you see on screen, plus **visible instance parameters** to **Excel**.
 
 Hosts:
 
 - **Autodesk Revit 2025 / 2026 / 2027**
 - **Autodesk Navisworks Manage / Simulate 2025 / 2026 / 2027**
+
+Agent/project rules: [rules/](rules/) (`01-overview`, `02-architecture`, `03-tasks`).
 
 ![Mechanical room export with piping system colors](docs/images/sample-mechanical-room.png)
 
@@ -26,12 +28,14 @@ Both hosts use a **MetroCIM** ribbon tab with an **Export** panel:
 - glTF / XKT: active **3D view** visibility and colors (filters, overrides, MEP system types)
 - glTF / XKT: choose **Local location** (Project Base Point) or **Shared Coordination** before save
 - IFC: selected Revit IFC setup, then MetroCIM color apply + STEP patch (coordinates come from the IFC setup, not the Local/Shared prompt)
+- Excel: view-visible instances → Revit Id, IFC GUID, all instance and type parameters
 
 ### Navisworks
 - glTF / XKT / IFC: all **visible** model items (not hidden)
-- Choose **Local location** (primary model origin) or **Shared Coordination** (world / federated) before save
+- Choose **Local location** (primary model origin) or **Shared Coordination** (world / federated) before save (mesh exports only)
 - Colors: fragment appearance, then color-like properties
 - IFC: MetroCIM IFC4 mesh writer (`IfcTriangulatedFaceSet`) — Navisworks has no Revit IFC setup picker
+- Excel: visible items → Revit Id / IFC GUID (from properties when present) + all NW property values
 
 ## Requirements
 

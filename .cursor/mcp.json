@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "excel": {
+      "command": "npx",
+      "args": ["-y", "@sbroenne/mcp-server-excel@latest"]
+    }
+  }
+}
